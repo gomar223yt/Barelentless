@@ -1,6 +1,6 @@
 # Control pipeline and learning
 
-Two subsystems, added on top of Baritone 1.21.11. They are independent: the control pipeline is useful with no
+Two subsystems, added on top of Baritone 1.21.11 (Fabric, Forge, NeoForge). They are independent: the control pipeline is useful with no
 learning at all, and learning is expressed entirely through the control pipeline rather than by patching movement
 code.
 
@@ -94,6 +94,73 @@ set humanAimOvershoot 0.06
 Aim gains a velocity that accelerates into a turn, decelerates out of it, and overshoots slightly on large
 corrections before settling — instead of teleporting to the target angle in one tick. Applies only to non-precise
 targets.
+
+### Writing movement and aim yourself, as formulas
+
+Registering a shaper means writing Java and rebuilding the mod. That is the wrong price for "make it slow down near
+ledges". So the same pipeline also accepts **control scripts**: text files of formulas, reloaded in game, no rebuild.
+
+Put a `.bar` file in `.minecraft/baritone/control/` and run `control script reload`:
+
+```
+name     careful edges
+priority 700
+when     onGround && !flying
+
+let floorAhead   = standable(1, -1, 0)
+let floorFurther = standable(2, -1, 0)
+let exposure     = (1 - floorAhead) + (1 - floorFurther) * 0.5
+let caution      = clamp(exposure / 1.5, 0, 1)
+
+forward = inForward * lerp(1, 0.35, caution)
+sprint  = inSprint && caution < 0.3
+sneak   = caution > 0.8 && !inJump
+```
+
+That is a complete movement controller. It runs every tick, in the same pipeline as the built-in shapers, at the
+priority it declares.
+
+**Everything is in your own frame.** `dx` is how far *ahead* the destination is, not how far east.
+`standable(1, -1, 0)` asks "is there floor one block ahead of me", whichever way you are facing. Writing a movement
+in world coordinates means writing it four times and still getting the diagonals wrong.
+
+**Outputs:** `forward`, `strafe` (analog, −1…1), `jump`, `sprint`, `sneak`, `sneakScale`, `yaw`, `pitch`,
+`yawDelta`, `pitchDelta`. Set only the ones you care about — the rest stay exactly as the previous stage left them.
+A script that assigns `forward` is a movement shaper; one that assigns `yaw` is an aim shaper; one that assigns both
+is both. Nobody has to declare which.
+
+**Inputs:** ~45 variables — position within the block, velocity in your own frame, distance and angle to the
+destination, how far past its estimate the current movement has run, aim error, tolerance, health, terrain queries
+(`solid`, `standable`, `liquid`, `air`, `friction`, `known`) — plus the usual maths, `clamp`, `lerp`, `smoothstep`,
+`approach`, `wrapDegrees`, `noise`. `control vars` prints the lot with descriptions.
+
+**What it costs:** ~120 ns per script per tick. Names are resolved to array slots at compile time and constant
+subexpressions are folded, so there is no lookup and no allocation at runtime — you never have to wonder whether you
+can afford another script.
+
+**What it cannot do**, however it is written:
+
+- break a precise aim — the pipeline clamps every result back inside the tolerance of whatever asked for the
+  rotation, scripts included;
+- hang the game — there are no loops in the language;
+- crash the tick — a script that produces a NaN or throws is disabled and reported, and the tick carries on.
+
+A file that fails to compile keeps its previously loaded version registered, so a typo at three in the morning cannot
+leave the bot with no controller. Errors point at the line with a caret, and an unknown name suggests what you
+probably meant.
+
+```
+control vars                    every variable and function, with descriptions
+control script list             what is loaded
+control script reload           re-read the folder and apply
+control script show <name>      source, and how many ticks it has run
+control script enable|disable   toggle one without editing the file
+control script eval <expr>      evaluate against the game right now
+control script unload           remove all scripts from the pipeline
+```
+
+Four working examples are written into the folder on first use — smooth aim, careful edges, sprint discipline,
+corner cutting — each guarded off by default so installing the mod changes nothing until you say so.
 
 ### Inspecting it
 
