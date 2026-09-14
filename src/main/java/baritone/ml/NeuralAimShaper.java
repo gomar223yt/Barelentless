@@ -100,9 +100,14 @@ public final class NeuralAimShaper implements IRotationShaper {
         this.previousPitchError = pitchError;
         this.previousRotation = from;
 
+        if (!this.manager.canInfer()) {
+            return current;
+        }
         AimModel.Aim aim;
         try {
+            long start = System.nanoTime();
             aim = model.predict(windowTensor(model));
+            this.manager.recordInference(System.nanoTime() - start);
         } catch (RuntimeException e) {
             this.manager.onInferenceFailure("aim", e);
             return current;

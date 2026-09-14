@@ -80,10 +80,15 @@ public final class MovementPolicyShaper implements IInputShaper {
             return;
         }
 
+        if (!this.manager.canInfer()) {
+            return;
+        }
         float[] observation = this.manager.currentStateFeatures().clone();
         PolicyOutput output;
         try {
+            long start = System.nanoTime();
             output = policy.forward(new Tensor(1, StateEncoder.FEATURES, observation.clone()));
+            this.manager.recordInference(System.nanoTime() - start);
         } catch (RuntimeException e) {
             this.manager.onInferenceFailure("movement", e);
             return;

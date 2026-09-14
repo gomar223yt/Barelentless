@@ -156,6 +156,11 @@ public final class MlManager extends Behavior implements ILearningAPI, Helper {
     // demonstration recording
     private final Deque<DemonstrationFrame> demonstrationFrames = new ArrayDeque<>();
 
+    // inference budget
+    private double inferenceNanosEma;
+    private boolean throttled;
+    private long throttleChanges;
+
     // diagnostics
     private long trainingSteps;
     private float lastLoss = Float.NaN;
@@ -827,6 +832,54 @@ public final class MlManager extends Behavior implements ILearningAPI, Helper {
 
     // ------------------------------------------------------------------------------------------------ diagnostics
 
+    /**
+     * Whether a model may run on this tick.
+     * <p>
+     * Inference happens inside the game loop, so its cost is not somebody else's problem: a model that takes four
+     * milliseconds on a machine that has sixteen to spare is fine, and the same model on a machine already dropping
+     * frames is the thing the player will blame. When the measured cost exceeds its budget the models are throttled
+     * rather than silently allowed to eat the tick. One tick in eight is still let through, so if the machine frees
+     * up the estimate recovers on its own instead of staying throttled until a restart.
+     */
+    public boolean canInfer() {
+        if (!this.throttled) {
+            return true;
+        }
+        return (this.tick & 7L) == 0L;
+    }
+
+    /**
+     * Reports how long a model took this tick. The estimate is an exponential average, because what matters is the
+     * sustained cost, not one slow tick during a chunk load.
+     */
+    public void recordInference(long nanos) {
+        this.inferenceNanosEma = this.inferenceNanosEma == 0
+                ? nanos
+                : this.inferenceNanosEma * 0.98 + nanos * 0.02;
+        double budget = Math.max(0.1, Baritone.settings().mlMaxInferenceMs.value) * 1_000_000.0;
+        boolean over = this.inferenceNanosEma > budget;
+        if (over != this.throttled) {
+            this.throttled = over;
+            this.throttleChanges++;
+            logDirect(over
+                    ? String.format("Barelentless ML: inference is costing %.2f ms a tick, above the %.2f ms budget; "
+                            + "throttling the models. Raise mlMaxInferenceMs, or lower mlAimDimension.",
+                            this.inferenceNanosEma / 1e6, budget / 1e6)
+                    : "Barelentless ML: inference is back within budget.");
+        }
+    }
+
+    /**
+     * The measured cost of model inference, in milliseconds per tick.
+     */
+    public double getInferenceMillis() {
+        return this.inferenceNanosEma / 1e6;
+    }
+
+    public boolean isThrottled() {
+        return this.throttled;
+    }
+
     public void onInferenceFailure(String where, RuntimeException e) {
         this.inferenceFailures++;
         this.lastError = where + ": " + e;
@@ -853,6 +906,8 @@ public final class MlManager extends Behavior implements ILearningAPI, Helper {
         lines.add("movement samples: " + this.movementSamples.size() + "/" + this.movementSamples.capacity());
         lines.add("memory: " + this.memory.size() + " situations, " + this.memory.totalVisits() + " visits, "
                 + this.memory.getMerges() + " merges, " + this.memory.getEvictions() + " evictions");
+        lines.add(String.format("inference: %.2f ms/tick%s", getInferenceMillis(),
+                this.throttled ? " (THROTTLED - over mlMaxInferenceMs)" : ""));
         lines.add("movement policy: " + (this.liveMovementPolicy == null ? "not built"
                 : this.liveMovementPolicy.parameterCount() + " parameters, " + this.policySteps + " steps acted, "
                 + this.finishedTrajectories.size() + " trajectories queued"));

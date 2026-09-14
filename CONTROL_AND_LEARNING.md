@@ -207,6 +207,13 @@ produced it, which is exactly what the importance ratio corrects for.
 all, and also what makes movement visibly less consistent; turn it off to run a trained policy without further
 learning.
 
+### Staying out of the frame time
+
+Inference runs inside the game loop, so its cost is the player's frame time. The measured cost per tick is tracked as
+an exponential average, and above `mlMaxInferenceMs` (default 3 ms) the models step aside instead of eating the tick,
+with one tick in eight still let through so the measurement recovers on its own if the machine frees up. `ml status`
+reports the current figure and whether throttling is active.
+
 ### Settings
 
 ```
@@ -227,6 +234,7 @@ set mlMovementExplore true  sample actions (needed to keep learning) or take the
 set mlMovementBatch 8       finished movements per reinforcement update
 set mlBatchSize 32          samples per training step
 set mlTrainingDelayMs 25    pause between steps
+set mlMaxInferenceMs 3.0    per-tick inference budget before the models throttle themselves
 ```
 
 `mlEnabled` on its own only records and trains. Behaviour changes only when `mlAim` or `mlLearnedCosts` is also on.
@@ -289,7 +297,12 @@ So every differentiable operation is checked against central differences, and th
 ml selftest
 ```
 
-or standalone:
+They also run as part of the ordinary build (`gradlew test`), alongside unit tests for the autodiff tape and the
+episodic memory that a numerical gradient check cannot see - shared subexpressions accumulating both contributions,
+constants never allocating gradients, softmax staying finite on large logits, memory merging rather than duplicating,
+and a saved memory meaning the same thing when loaded back.
+
+Standalone:
 
 ```
 java -cp <jar> baritone.api.ml.MlDiagnostics

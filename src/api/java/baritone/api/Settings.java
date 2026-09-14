@@ -947,6 +947,15 @@ public final class Settings {
     public final Setting<Integer> mlMovementBatch = new Setting<>(8);
 
     /**
+     * How many milliseconds per tick model inference may cost before the models are throttled.
+     * <p>
+     * Inference runs inside the game loop, so its cost is the player's frame time. Above this budget the models step
+     * aside rather than eating the tick; one tick in eight still runs, so the measurement recovers on its own if the
+     * machine frees up.
+     */
+    public final Setting<Double> mlMaxInferenceMs = new Setting<>(3.0D);
+
+    /**
      * Samples per training step on the background thread.
      */
     public final Setting<Integer> mlBatchSize = new Setting<>(32);
