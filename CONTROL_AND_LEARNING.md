@@ -217,6 +217,10 @@ learning.
 
 ### Staying out of the frame time
 
+At the default size (window 8, dimension 48, depth 2, ~47 000 parameters) one aim inference measures ~0.35 ms, against
+a 50 ms tick. The knobs cost about what you would expect: depth 1 halves it, dimension 32 halves it, window 16 with
+dimension 64 costs ~0.9 ms.
+
 Inference runs inside the game loop, so its cost is the player's frame time. The measured cost per tick is tracked as
 an exponential average, and above `mlMaxInferenceMs` (default 3 ms) the models step aside instead of eating the tick,
 with one tick in eight still let through so the measurement recovers on its own if the machine frees up. `ml status`
