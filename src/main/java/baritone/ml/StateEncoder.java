@@ -17,6 +17,7 @@
 
 package baritone.ml;
 
+import baritone.api.pathing.movement.ActionCosts;
 import baritone.api.pathing.movement.IMovement;
 import baritone.api.utils.BetterBlockPos;
 import baritone.api.utils.IPlayerContext;
@@ -120,7 +121,7 @@ public final class StateEncoder {
         features[index++] = ctx.player().isSprinting() ? 1f : 0f;
         features[index++] = ctx.player().isShiftKeyDown() ? 1f : 0f;
         features[index++] = ctx.player().onClimbable() ? 1f : 0f;
-        features[index++] = Math.min(1f, ctx.player().fallDistance / 8f);
+        features[index++] = (float) Math.min(1.0, ctx.player().fallDistance / 8.0);
         features[index++] = ctx.player().getHealth() / 20f;
         features[index++] = ctx.player().getFoodData().getFoodLevel() / 20f;
         // position within the block, which is what actually decides whether the next step lands on the edge
@@ -161,7 +162,7 @@ public final class StateEncoder {
         BetterBlockPos source = movement.getSrc();
         features[index++] = destination.y - source.y;
         features[index++] = Math.abs(destination.x - source.x) + Math.abs(destination.z - source.z);
-        features[index++] = movement.calculateCurrentCost() >= baritone.api.pathing.movement.ActionCosts.COST_INF ? 1f : 0f;
+        features[index++] = cost >= ActionCosts.COST_INF ? 1f : 0f;
         features[index++] = 1f; // presence flag: distinguishes "no movement" from "a movement that encodes to zeros"
         return index;
     }

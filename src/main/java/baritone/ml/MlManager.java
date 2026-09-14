@@ -563,8 +563,9 @@ public final class MlManager extends Behavior implements Helper {
             metadata.put("features", Integer.toString(AimModel.INPUT_FEATURES));
             metadata.put("window", Integer.toString(this.liveAimModel.getWindow()));
             metadata.put("demonstrations", Long.toString(this.demonstrationsRecorded));
-            ModelIO.save(this.trainingAimModel == null ? this.liveAimModel : this.trainingAimModel,
-                    this.directory.resolve(AIM_MODEL_FILE), metadata);
+            // the live snapshot, not the trainer's working copy: the trainer mutates its weights in place, so writing
+            // those from another thread could put a half-applied optimizer step on disk
+            ModelIO.save(this.liveAimModel, this.directory.resolve(AIM_MODEL_FILE), metadata);
             this.memory.save(this.directory.resolve(MEMORY_FILE));
             try (DataOutputStream out = new DataOutputStream(new GZIPOutputStream(
                     new BufferedOutputStream(Files.newOutputStream(this.directory.resolve(STATISTICS_FILE)))))) {
@@ -712,6 +713,8 @@ public final class MlManager extends Behavior implements Helper {
         this.lastLoss = Float.NaN;
         this.lastError = "";
         createModels();
+        // overwrite the checkpoint now, so a crash before the next save does not resurrect what was just discarded
+        save();
         if (wasRunning) {
             start();
         }

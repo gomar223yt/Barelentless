@@ -30,6 +30,10 @@ import baritone.api.ml.nn.Module;
 import baritone.api.ml.nn.SequenceEncoder;
 import baritone.api.ml.optim.Adam;
 import baritone.api.ml.optim.LearningRateSchedule;
+import baritone.api.ml.rl.Policy;
+import baritone.api.ml.rl.PolicyOutput;
+import baritone.api.ml.rl.PpoTrainer;
+import baritone.api.ml.rl.Trajectory;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -92,6 +96,7 @@ public final class MlDiagnostics {
         results.add(guard("gradients/losses", MlDiagnostics::checkLossGradients));
         results.add(guard("learning/xor", MlDiagnostics::checkXorLearning));
         results.add(guard("learning/sequence", MlDiagnostics::checkSequenceLearning));
+        results.add(guard("learning/ppo", MlDiagnostics::checkPolicyOptimization));
         results.add(guard("optim/clipping", MlDiagnostics::checkGradientClipping));
         results.add(guard("data/statistics", MlDiagnostics::checkRunningStatistics));
         results.add(guard("data/replay", MlDiagnostics::checkReplayBuffer));
@@ -322,7 +327,6 @@ public final class MlDiagnostics {
         SequenceEncoder encoder = new SequenceEncoder(features, 16, 2, 1, 32, window, 0f, random);
         Linear head = new Linear(16, 1, true, false, random);
 
-        Module container = new Module() {};
         List<Tensor> parameters = new ArrayList<>(encoder.parameters());
         parameters.addAll(head.parameters());
         Adam optimizer = new Adam(parameters, 0.01f);
@@ -363,6 +367,95 @@ public final class MlDiagnostics {
         return new Result("sequence", correct >= 45,
                 String.format("recalled %d/50 with smoothed loss %.4f (%d parameters)",
                         correct, loss, encoder.parameterCount() + head.parameterCount()));
+    }
+
+    /**
+     * Trains a policy by reinforcement alone on a task with a known answer: the reward is highest when the action
+     * matches a target that depends on the observation, and the policy is never told what that target is - only how
+     * much reward it got. If advantages, ratios, clipping or the Gaussian log probability were wrong, average reward
+     * would not move.
+     */
+    private static Result checkPolicyOptimization() {
+        Random random = new Random(2024);
+        final int observations = 3;
+
+        class ToyPolicy extends Module implements Policy {
+
+            final Mlp trunk = child("trunk", new Mlp(observations, new int[]{32, 32}, 3,
+                    Activation.TANH, Activation.IDENTITY, false, random));
+
+            @Override
+            public PolicyOutput forward(Tensor input) {
+                Tensor output = this.trunk.forward(input);
+                Tensor mean = output.sliceCols(0, 1);
+                Tensor logDeviation = output.sliceCols(1, 2).clamp(-3f, 1f);
+                Tensor value = output.sliceCols(2, 3);
+                return new PolicyOutput(mean, logDeviation, null, value);
+            }
+
+            @Override
+            public Module module() {
+                return this;
+            }
+
+            @Override
+            public int continuousActions() {
+                return 1;
+            }
+        }
+
+        ToyPolicy policy = new ToyPolicy();
+        Adam optimizer = new Adam(policy.parameters(), 3e-3f);
+        PpoTrainer trainer = new PpoTrainer(policy, optimizer, random)
+                .setEpochs(4)
+                .setMiniBatch(64)
+                .setEntropyCoefficient(0.002f);
+
+        float firstReward = 0;
+        float lastReward = 0;
+        for (int iteration = 0; iteration < 40; iteration++) {
+            List<Trajectory> batch = new ArrayList<>();
+            float rewardSum = 0;
+            int steps = 0;
+            for (int episode = 0; episode < 16; episode++) {
+                Trajectory trajectory = new Trajectory(0);
+                for (int t = 0; t < 8; t++) {
+                    float[] observation = new float[observations];
+                    for (int i = 0; i < observations; i++) {
+                        observation[i] = (float) random.nextGaussian();
+                    }
+                    Tensor input = new Tensor(1, observations, observation.clone());
+                    PolicyOutput output = policy.forward(input);
+                    float mean = output.mean.data[0];
+                    float deviation = (float) Math.exp(output.logStandardDeviation.data[0]);
+                    float action = (float) (mean + random.nextGaussian() * deviation);
+
+                    float logProbability = (float) (-0.5 * Math.pow((action - mean) / deviation, 2)
+                            - Math.log(deviation) - 0.5 * Math.log(2 * Math.PI));
+                    Trajectory.Step step = new Trajectory.Step(observation, new float[]{action}, null,
+                            logProbability, output.value.data[0]);
+                    trajectory.add(step);
+                    // the answer the policy is never told: aim at the first observation minus half the second
+                    float target = observation[0] - 0.5f * observation[1];
+                    float reward = -Math.abs(action - target);
+                    trajectory.reward(reward);
+                    rewardSum += reward;
+                    steps++;
+                }
+                trajectory.steps().get(trajectory.size() - 1).terminal = true;
+                trajectory.finish(0f, 0.95f, 0.95f);
+                batch.add(trajectory);
+            }
+            float averageReward = rewardSum / steps;
+            if (iteration == 0) {
+                firstReward = averageReward;
+            }
+            lastReward = averageReward;
+            trainer.update(batch);
+        }
+        boolean improved = lastReward > firstReward + 0.3f;
+        return new Result("ppo", improved,
+                String.format("average reward %.3f -> %.3f over 40 updates", firstReward, lastReward));
     }
 
     private static Result checkGradientClipping() {

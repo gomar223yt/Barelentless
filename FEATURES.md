@@ -14,6 +14,15 @@
 - **Parkour place** Sprint jumping over a 3 block gap and placing the block to land on while executing the jump. It's really cool.
 - **Pigs** It can sort of control pigs. I wouldn't rely on it though.
 
+# Control and learning
+
+- **One movement and aim pipeline** Every tick's keys, movement vector and aim are assembled in one place, and anything can register a shaper into it - so how the bot moves is a thing you change once rather than across forty movement classes. See [CONTROL_AND_LEARNING.md](CONTROL_AND_LEARNING.md).
+- **Analog movement** Movement is no longer limited to the eight vanilla directions: a command can ask for forty percent forward, or two axes at different magnitudes, which is what makes precise approach speeds and smooth cornering expressible at all.
+- **Purposeful aim** A rotation request carries why it exists. Aim that a block break depends on is never deviated from beyond its tolerance; aim that only steers can be freely shaped - including into something that looks like a hand on a mouse (`humanAim`).
+- **Learning, in Java** An in-process learning engine with autodiff, transformers, optimizers and checkpoints - no native library and no Python. Runs on one background thread; the game thread never blocks on it.
+- **Episodic memory** Every executed movement's real outcome is recorded against its estimate and merged into a per-situation record with its own variance and confidence, so the bot can know one specific ledge rather than generalising it away. It feeds both pathfinding costs and how carefully a route is walked.
+- **Learned aim from your own play** While you control the view, each tick becomes a demonstration labelled with where you actually ended up looking. The model predicts a distribution, not a number, and its influence is bounded by its own confidence.
+
 # Pathing method
 
 Baritone uses A*, with some modifications:

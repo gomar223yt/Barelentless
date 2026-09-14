@@ -171,6 +171,7 @@ public final class ControlManager extends Behavior implements IControlAPI, Helpe
         this.tick++;
         updateMovementTracking();
 
+        final boolean driving = this.baritone.getPathingBehavior().isPathing() || this.requestedCommand != null;
         List<String> trace = isTracing() ? new ArrayList<>() : null;
         MovementCommand command = currentCommandBase();
         if (trace != null) {
@@ -197,7 +198,14 @@ public final class ControlManager extends Behavior implements IControlAPI, Helpe
         if (!isAnalogMovementEnabled()) {
             command.clearAnalog();
         }
-        applyCommand(command);
+        // While pathing, movement code rebuilds key state from scratch every tick, so writing our result back is
+        // safe. While idle it does not, and writing back would make our own output the next tick's input - a shaper
+        // that pressed sneak once would leave it pressed forever. So when nobody is driving, nothing is written.
+        if (driving) {
+            applyCommand(command);
+        } else {
+            this.baritone.getInputOverrideHandler().setActiveCommand(null);
+        }
         this.lastCommand = command;
         this.requestedCommand = null;
         this.requestedCommandPriority = Integer.MIN_VALUE;
