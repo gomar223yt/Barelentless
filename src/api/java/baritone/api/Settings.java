@@ -788,6 +788,144 @@ public final class Settings {
     public final Setting<Boolean> remainWithExistingLookDirection = new Setting<>(true);
 
     /**
+     * Allow movement to be expressed as a continuous vector instead of the eight vanilla directions.
+     * <p>
+     * With this on, a movement or a shaper can ask for forty percent forward rather than a stutter of the forward key,
+     * which is what makes precise approach speeds and smooth cornering possible at all. Turn it off on a server whose
+     * movement checks expect the input vector to only ever be one of the vanilla nine.
+     */
+    public final Setting<Boolean> analogMovement = new Setting<>(true);
+
+    /**
+     * Shape aim to move the way a hand on a mouse moves: accelerate into a turn, decelerate out of it, overshoot
+     * slightly on large corrections and settle back.
+     * <p>
+     * Applies only to rotations that do not need to be precise. A rotation that a block break depends on is never
+     * deviated from by more than its tolerance, whatever this is set to.
+     */
+    public final Setting<Boolean> humanAim = new Setting<>(false);
+
+    /**
+     * Maximum degrees of yaw change per tick under {@link #humanAim}. Twenty degrees a tick is a fast but human
+     * flick; at four hundred, the limit effectively never binds.
+     */
+    public final Setting<Double> humanAimMaxYawSpeed = new Setting<>(22.0D);
+
+    /**
+     * Maximum degrees of pitch change per tick under {@link #humanAim}.
+     */
+    public final Setting<Double> humanAimMaxPitchSpeed = new Setting<>(14.0D);
+
+    /**
+     * How sharply aim accelerates towards its target under {@link #humanAim}, as a fraction of the remaining error
+     * covered per tick. Lower is lazier, higher is snappier; at one, the limit above is the only thing slowing it.
+     */
+    public final Setting<Double> humanAimResponsiveness = new Setting<>(0.35D);
+
+    /**
+     * How far past the target a large correction is allowed to swing, as a fraction of the correction. Zero disables
+     * overshoot entirely.
+     */
+    public final Setting<Double> humanAimOvershoot = new Setting<>(0.06D);
+
+    /**
+     * Record every tick's control decisions so that {@code control trace} can show what each shaper changed.
+     * Costs a little garbage per tick, so it is off unless you are debugging a shaper.
+     */
+    public final Setting<Boolean> controlTracing = new Setting<>(false);
+
+    /**
+     * Master switch for learning. With this off, nothing is recorded, no model is built and no background thread
+     * runs; every other {@code ml} setting is inert.
+     * <p>
+     * With it on, the bot records what it does and what happens as a result, and trains on that in the background.
+     * Recording alone changes no behaviour - a model only affects the bot once {@link #mlAim} or
+     * {@link #mlLearnedCosts} is also on.
+     */
+    public final Setting<Boolean> mlEnabled = new Setting<>(false);
+
+    /**
+     * Let the learned model shape aim. Requires {@link #mlEnabled}.
+     * <p>
+     * Influence is proportional to the model's own confidence, and is always clamped inside the tolerance of whatever
+     * asked for the rotation, so this cannot break a block interaction however badly trained the model is.
+     */
+    public final Setting<Boolean> mlAim = new Setting<>(false);
+
+    /**
+     * Upper bound on how much the aim model may override the deterministic target, from zero (never) to one (fully,
+     * whenever it is confident).
+     */
+    public final Setting<Double> mlAimStrength = new Setting<>(0.6D);
+
+    /**
+     * How many past ticks the aim model reads. Longer windows capture more of the shape of a turn and cost more per
+     * tick; the attention is causal, so this is a genuine memory rather than a smoothing buffer.
+     */
+    public final Setting<Integer> mlAimWindow = new Setting<>(8);
+
+    /**
+     * Width of the aim model. Larger fits more distinct situations and costs more per tick.
+     */
+    public final Setting<Integer> mlAimDimension = new Setting<>(48);
+
+    /**
+     * Number of transformer blocks in the aim model.
+     */
+    public final Setting<Integer> mlAimDepth = new Setting<>(2);
+
+    /**
+     * Learn from the player's own mouse movement while they are in control.
+     * <p>
+     * This is what makes the bot's aim resemble the person it belongs to rather than a generic curve: every
+     * correction you make yourself becomes a demonstration, labelled with where you actually ended up looking.
+     */
+    public final Setting<Boolean> mlLearnFromPlayer = new Setting<>(true);
+
+    /**
+     * Also record the bot's own aim, at a much lower weight, so the model has its own behaviour to contrast
+     * demonstrations against.
+     */
+    public final Setting<Boolean> mlRecordSelf = new Setting<>(true);
+
+    /**
+     * Let remembered outcomes adjust the pathfinder's cost estimates. Requires {@link #mlEnabled}.
+     * <p>
+     * Costs are only adjusted for situations the bot has actually been in, and the adjustment is bounded, so this
+     * biases route choice towards what has worked without ever being able to make a route look free.
+     */
+    public final Setting<Boolean> mlLearnedCosts = new Setting<>(false);
+
+    /**
+     * How strongly remembered outcomes move a cost estimate, from zero to one.
+     */
+    public final Setting<Double> mlCostInfluence = new Setting<>(0.5D);
+
+    /**
+     * Move more carefully through situations that experience says are unreliable: slower approach, no sprint, and a
+     * sneak when a fall looks likely. Requires {@link #mlEnabled}.
+     * <p>
+     * Where {@link #mlLearnedCosts} changes which route is chosen, this changes how the chosen route is walked.
+     */
+    public final Setting<Boolean> mlCaution = new Setting<>(false);
+
+    /**
+     * How strongly remembered failures slow the bot down, from zero to one.
+     */
+    public final Setting<Double> mlCautionStrength = new Setting<>(0.7D);
+
+    /**
+     * Samples per training step on the background thread.
+     */
+    public final Setting<Integer> mlBatchSize = new Setting<>(32);
+
+    /**
+     * Pause between training steps, in milliseconds. Raise it if training competes with the game for CPU; the
+     * trainer already runs at minimum thread priority.
+     */
+    public final Setting<Integer> mlTrainingDelayMs = new Setting<>(25);
+
+    /**
      * Will cause some minor behavioral differences to ensure that Baritone works on anticheats.
      * <p>
      * At the moment this will silently set the player's rotations when using freeLook so you're not sprinting in

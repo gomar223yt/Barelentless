@@ -162,6 +162,16 @@ public final class AStarPathFinder extends AbstractNodeCostSearch {
                     // see issue #18
                     actionCost *= favoring.calculate(hashCode);
                 }
+                if (calcContext.costAdjuster != null) {
+                    // what the bot has learned about how this kind of movement behaves in this kind of place; the
+                    // adjustment is bounded and cached per situation, so a route can be biased by experience without
+                    // the search slowing down or a single memory being able to make a movement look free
+                    double adjusted = calcContext.costAdjuster.adjust(moves.ordinal(),
+                            currentNode.x, currentNode.y, currentNode.z, res.x, res.y, res.z, actionCost);
+                    if (adjusted > 0 && adjusted < ActionCosts.COST_INF && !Double.isNaN(adjusted)) {
+                        actionCost = adjusted;
+                    }
+                }
                 PathNode neighbor = getNodeAtPosition(res.x, res.y, res.z, hashCode);
                 double tentativeCost = currentNode.cost + actionCost;
                 if (neighbor.cost - tentativeCost > minimumImprovement) {

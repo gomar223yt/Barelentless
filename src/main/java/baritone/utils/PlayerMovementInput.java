@@ -17,6 +17,7 @@
 
 package baritone.utils;
 
+import baritone.api.control.MovementCommand;
 import baritone.api.utils.input.Input;
 import net.minecraft.client.player.ClientInput;
 import net.minecraft.world.phys.Vec2;
@@ -31,6 +32,11 @@ public class PlayerMovementInput extends ClientInput {
 
     @Override
     public void tick() {
+        MovementCommand command = handler.getActiveCommand();
+        if (command != null && command.isAnalog()) {
+            tickAnalog(command);
+            return;
+        }
         float leftImpulse = 0.0F;
         float forwardImpulse = 0.0F;
         boolean jumping = handler.isInputForcedDown(Input.JUMP); // oppa gangnam style
@@ -65,5 +71,34 @@ public class PlayerMovementInput extends ClientInput {
         boolean sprinting = handler.isInputForcedDown(Input.SPRINT);
 
         this.keyPresses = new net.minecraft.world.entity.player.Input(up, down, left, right, jumping, sneaking, sprinting);
+    }
+
+    /**
+     * Applies a command that carries a continuous movement vector.
+     * <p>
+     * The key presses are still reported honestly - the game, and anything mixing into it, sees forward held when the
+     * bot is moving forward - but the impulse vector is taken verbatim instead of being rebuilt from those booleans.
+     * That is the whole difference between "walk forward" and "walk forward at forty percent", which is what makes
+     * ledges, precise jump approaches and smooth cornering expressible at all.
+     */
+    private void tickAnalog(MovementCommand command) {
+        float forwardImpulse = command.getForwardImpulse();
+        float leftImpulse = command.getStrafeImpulse();
+        boolean sneaking = command.isPressed(Input.SNEAK);
+        if (sneaking) {
+            float scale = command.getSneakScale();
+            leftImpulse *= scale;
+            forwardImpulse *= scale;
+        }
+        this.moveVector = new Vec2(leftImpulse, forwardImpulse);
+        this.keyPresses = new net.minecraft.world.entity.player.Input(
+                command.isPressed(Input.MOVE_FORWARD),
+                command.isPressed(Input.MOVE_BACK),
+                command.isPressed(Input.MOVE_LEFT),
+                command.isPressed(Input.MOVE_RIGHT),
+                command.isPressed(Input.JUMP),
+                sneaking,
+                command.isSprintAllowed() && command.isPressed(Input.SPRINT)
+        );
     }
 }

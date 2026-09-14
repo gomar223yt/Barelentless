@@ -18,6 +18,7 @@
 package baritone.api.utils;
 
 import baritone.api.behavior.IBehavior;
+import baritone.api.control.MovementCommand;
 import baritone.api.utils.input.Input;
 
 /**
@@ -31,4 +32,17 @@ public interface IInputOverrideHandler extends IBehavior {
     void setInputForceState(Input input, boolean forced);
 
     void clearAllKeys();
+
+    /**
+     * Sets the shaped {@link MovementCommand} to apply for the current tick. Set by the control pipeline; anything
+     * else writing here will simply be overwritten on the next tick.
+     *
+     * @param command The command, or {@code null} to fall back to plain key state
+     */
+    void setActiveCommand(MovementCommand command);
+
+    /**
+     * @return The command being applied this tick, or {@code null} if movement is running on key state alone
+     */
+    MovementCommand getActiveCommand();
 }

@@ -19,6 +19,7 @@ package baritone.utils;
 
 import baritone.Baritone;
 import baritone.api.BaritoneAPI;
+import baritone.api.control.MovementCommand;
 import baritone.api.event.events.TickEvent;
 import baritone.api.utils.IInputOverrideHandler;
 import baritone.api.utils.input.Input;
@@ -42,6 +43,12 @@ public final class InputOverrideHandler extends Behavior implements IInputOverri
      * Maps inputs to whether or not we are forcing their state down.
      */
     private final Map<Input, Boolean> inputForceStateMap = new HashMap<>();
+
+    /**
+     * The fully shaped command for the current tick, or null when nothing has produced one. Read by
+     * {@link PlayerMovementInput} so that analog movement reaches the game without a second path through key state.
+     */
+    private MovementCommand activeCommand;
 
     private final BlockBreakHelper blockBreakHelper;
     private final BlockPlaceHelper blockPlaceHelper;
@@ -114,6 +121,20 @@ public final class InputOverrideHandler extends Behavior implements IInputOverri
         }
         // if we are not primary (a bot) we should set the movementinput even when idle (not pathing)
         return baritone.getPathingBehavior().isPathing() || baritone != BaritoneAPI.getProvider().getPrimaryBaritone();
+    }
+
+    /**
+     * Sets the command that {@link PlayerMovementInput} will apply this tick. Called by the control manager once all
+     * shapers have run.
+     */
+    @Override
+    public void setActiveCommand(MovementCommand command) {
+        this.activeCommand = command;
+    }
+
+    @Override
+    public MovementCommand getActiveCommand() {
+        return this.activeCommand;
     }
 
     public BlockBreakHelper getBlockBreakHelper() {

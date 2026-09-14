@@ -87,6 +87,12 @@ public class CalculationContext {
 
     public final PrecomputedData precomputedData;
 
+    /**
+     * Applies what has been learned about how movements really perform to this calculation's cost estimates, or null
+     * when learned costs are off. One instance per calculation, used only by the thread running it.
+     */
+    public final baritone.api.ml.ICostAdjuster costAdjuster;
+
     public CalculationContext(IBaritone baritone) {
         this(baritone, false);
     }
@@ -159,6 +165,10 @@ public class CalculationContext {
         // because if some movements are calculated one way and others are calculated another way,
         // then you get a wildly inconsistent path that isn't optimal for either scenario.
         this.worldBorder = new BetterWorldBorder(world.getWorldBorder());
+        // built last, because it reads this context's own block accessor
+        this.costAdjuster = baritone instanceof Baritone
+                ? ((Baritone) baritone).getMlManager().newCostAdjuster(this)
+                : null;
     }
 
     public final IBaritone getBaritone() {

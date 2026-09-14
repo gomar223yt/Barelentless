@@ -22,6 +22,7 @@ import baritone.api.Settings;
 import baritone.api.behavior.ILookBehavior;
 import baritone.api.behavior.look.IAimProcessor;
 import baritone.api.behavior.look.ITickableAimProcessor;
+import baritone.api.control.RotationTarget;
 import baritone.api.event.events.*;
 import baritone.api.utils.IPlayerContext;
 import baritone.api.utils.Rotation;
@@ -65,7 +66,20 @@ public final class LookBehavior extends Behavior implements ILookBehavior {
 
     @Override
     public void updateTarget(Rotation rotation, boolean blockInteract) {
-        this.target = new Target(rotation, Target.Mode.resolve(ctx, blockInteract));
+        // Everything that wants to look somewhere ends up here, which makes this the one place where aim can be
+        // shaped. The purpose travels with the request so that shapers can treat "point at the block I am about to
+        // break" and "point roughly where I am walking" as the different problems they are.
+        RotationTarget.Purpose purpose;
+        if (ctx.player() != null && ctx.player().isFallFlying()) {
+            purpose = RotationTarget.Purpose.FLIGHT;
+        } else if (blockInteract) {
+            purpose = RotationTarget.Purpose.BLOCK_INTERACT;
+        } else {
+            purpose = RotationTarget.Purpose.MOVEMENT;
+        }
+        Rotation shaped = this.baritone.getControlAPI()
+                .shapeRotation(new RotationTarget(rotation, purpose, "lookBehavior"));
+        this.target = new Target(shaped, Target.Mode.resolve(ctx, blockInteract));
     }
 
     @Override

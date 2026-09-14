@@ -40,6 +40,8 @@ public final class DefaultCommands {
                 new ProcCommand(baritone),
                 new ETACommand(baritone),
                 new VersionCommand(baritone),
+                new MlCommand(baritone),
+                new ControlCommand(baritone),
                 new RepackCommand(baritone),
                 new BuildCommand(baritone),
                 //new SchematicaCommand(baritone),

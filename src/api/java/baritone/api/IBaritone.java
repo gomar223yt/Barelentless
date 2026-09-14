@@ -21,6 +21,7 @@ import baritone.api.behavior.ILookBehavior;
 import baritone.api.behavior.IPathingBehavior;
 import baritone.api.cache.IWorldProvider;
 import baritone.api.command.manager.ICommandManager;
+import baritone.api.control.IControlAPI;
 import baritone.api.event.listener.IEventBus;
 import baritone.api.pathing.calc.IPathingControlManager;
 import baritone.api.process.*;
@@ -108,6 +109,15 @@ public interface IBaritone {
      * @see IPathingControlManager
      */
     IPathingControlManager getPathingControlManager();
+
+    /**
+     * Returns the {@link IControlAPI} for this instance: the pipeline every tick's movement keys, analog movement
+     * vector and aim pass through, and the place to register anything that should change how the bot moves or looks.
+     *
+     * @return The {@link IControlAPI} instance
+     * @see IControlAPI
+     */
+    IControlAPI getControlAPI();
 
     /**
      * @return The {@link IInputOverrideHandler} instance

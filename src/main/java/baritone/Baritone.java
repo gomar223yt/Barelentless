@@ -28,6 +28,8 @@ import baritone.api.utils.IPlayerContext;
 import baritone.behavior.*;
 import baritone.cache.WorldProvider;
 import baritone.command.manager.CommandManager;
+import baritone.control.ControlManager;
+import baritone.ml.MlManager;
 import baritone.event.GameEventHandler;
 import baritone.process.*;
 import baritone.selection.SelectionManager;
@@ -70,6 +72,8 @@ public class Baritone implements IBaritone {
     private final LookBehavior lookBehavior;
     private final InventoryBehavior inventoryBehavior;
     private final InputOverrideHandler inputOverrideHandler;
+    private final ControlManager controlManager;
+    private final MlManager mlManager;
 
     private final FollowProcess followProcess;
     private final MineProcess mineProcess;
@@ -110,6 +114,10 @@ public class Baritone implements IBaritone {
             this.inventoryBehavior    = this.registerBehavior(InventoryBehavior::new);
             this.inputOverrideHandler = this.registerBehavior(InputOverrideHandler::new);
             this.registerBehavior(WaypointBehavior::new);
+            // registered last on purpose: it assembles the final command from whatever pathing and the processes
+            // have already decided this tick, so everything else must have had its turn first
+            this.controlManager = this.registerBehavior(ControlManager::new);
+            this.mlManager = this.registerBehavior(MlManager::new);
         }
 
         this.pathingControlManager = new PathingControlManager(this);
@@ -150,6 +158,19 @@ public class Baritone implements IBaritone {
     @Override
     public PathingControlManager getPathingControlManager() {
         return this.pathingControlManager;
+    }
+
+    /**
+     * The learning subsystem: recorded experience, trained models and the episodic memory. Inert unless
+     * {@link Settings#mlEnabled} is on.
+     */
+    public MlManager getMlManager() {
+        return this.mlManager;
+    }
+
+    @Override
+    public ControlManager getControlAPI() {
+        return this.controlManager;
     }
 
     @Override
