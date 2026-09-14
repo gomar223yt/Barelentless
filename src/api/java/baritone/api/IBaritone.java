@@ -23,6 +23,7 @@ import baritone.api.cache.IWorldProvider;
 import baritone.api.command.manager.ICommandManager;
 import baritone.api.control.IControlAPI;
 import baritone.api.control.script.IScriptAPI;
+import baritone.api.pathing.calc.ICostRegistry;
 import baritone.api.ml.ILearningAPI;
 import baritone.api.event.listener.IEventBus;
 import baritone.api.pathing.calc.IPathingControlManager;
@@ -120,6 +121,15 @@ public interface IBaritone {
      * @see IControlAPI
      */
     IControlAPI getControlAPI();
+
+    /**
+     * Returns the {@link ICostRegistry} for this instance: what the pathfinder is told candidate movements cost,
+     * and therefore which way the bot decides to go.
+     *
+     * @return The {@link ICostRegistry} instance
+     * @see ICostRegistry
+     */
+    ICostRegistry getCostRegistry();
 
     /**
      * Returns the {@link IScriptAPI} for this instance: movement and aim written as formulas, loaded from files or

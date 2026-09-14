@@ -167,7 +167,7 @@ public class CalculationContext {
         this.worldBorder = new BetterWorldBorder(world.getWorldBorder());
         // built last, because it reads this context's own block accessor
         this.costAdjuster = baritone instanceof Baritone
-                ? ((Baritone) baritone).getMlManager().newCostAdjuster(this)
+                ? ((Baritone) baritone).getCostRegistry().create(this.bsi)
                 : null;
     }
 

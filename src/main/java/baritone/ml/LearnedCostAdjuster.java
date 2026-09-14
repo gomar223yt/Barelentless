@@ -19,7 +19,6 @@ package baritone.ml;
 
 import baritone.api.ml.ICostAdjuster;
 import baritone.api.ml.memory.EpisodicMemory;
-import baritone.utils.BlockStateInterface;
 import it.unimi.dsi.fastutil.longs.Long2DoubleOpenHashMap;
 import net.minecraft.world.level.block.state.BlockState;
 
@@ -51,7 +50,7 @@ public final class LearnedCostAdjuster implements ICostAdjuster {
     private static final double MAX_MULTIPLIER = 2.5;
 
     private final EpisodicMemory memory;
-    private final BlockStateInterface bsi;
+    private final ICostAdjuster.Blocks blocks;
     private final double influence;
 
     /**
@@ -63,9 +62,9 @@ public final class LearnedCostAdjuster implements ICostAdjuster {
     private long adjusted;
     private long queries;
 
-    public LearnedCostAdjuster(EpisodicMemory memory, BlockStateInterface bsi, double influence) {
+    public LearnedCostAdjuster(EpisodicMemory memory, ICostAdjuster.Blocks blocks, double influence) {
         this.memory = memory;
-        this.bsi = bsi;
+        this.blocks = blocks;
         this.influence = influence;
         this.cache.defaultReturnValue(Double.NaN);
     }
@@ -73,13 +72,13 @@ public final class LearnedCostAdjuster implements ICostAdjuster {
     @Override
     public double adjust(int moveOrdinal, int srcX, int srcY, int srcZ, int destX, int destY, int destZ, double cost) {
         this.queries++;
-        if (!this.bsi.worldContainsLoadedChunk(destX, destZ)) {
+        if (!this.blocks.isLoaded(destX, destZ)) {
             return cost;
         }
-        BlockState under = this.bsi.get0(srcX, srcY - 1, srcZ);
-        BlockState into = this.bsi.get0(destX, destY, destZ);
-        BlockState landing = this.bsi.get0(destX, destY - 1, destZ);
-        BlockState above = this.bsi.get0(destX, destY + 1, destZ);
+        BlockState under = this.blocks.get(srcX, srcY - 1, srcZ);
+        BlockState into = this.blocks.get(destX, destY, destZ);
+        BlockState landing = this.blocks.get(destX, destY - 1, destZ);
+        BlockState above = this.blocks.get(destX, destY + 1, destZ);
 
         long hash = situationHash(moveOrdinal, destY - srcY, under, into, landing, above);
         double multiplier = this.cache.get(hash);

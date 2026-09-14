@@ -32,6 +32,7 @@ import baritone.control.ControlManager;
 import baritone.control.script.ScriptManager;
 import baritone.ml.MlManager;
 import baritone.event.GameEventHandler;
+import baritone.pathing.calc.CostRegistry;
 import baritone.process.*;
 import baritone.selection.SelectionManager;
 import baritone.utils.BlockStateInterface;
@@ -76,6 +77,7 @@ public class Baritone implements IBaritone {
     private final ControlManager controlManager;
     private final MlManager mlManager;
     private final ScriptManager scriptManager;
+    private final CostRegistry costRegistry;
 
     private final FollowProcess followProcess;
     private final MineProcess mineProcess;
@@ -136,6 +138,7 @@ public class Baritone implements IBaritone {
             this.registerProcess(BackfillProcess::new);
         }
 
+        this.costRegistry = new CostRegistry(this);
         this.scriptManager = new ScriptManager(this);
         this.worldProvider = new WorldProvider(this);
         this.selectionManager = new SelectionManager(this);
@@ -166,6 +169,11 @@ public class Baritone implements IBaritone {
     /**
      * Control scripts: user-written movement and aim, loaded from the baritone/control folder.
      */
+    @Override
+    public CostRegistry getCostRegistry() {
+        return this.costRegistry;
+    }
+
     @Override
     public ScriptManager getScriptAPI() {
         return this.scriptManager;

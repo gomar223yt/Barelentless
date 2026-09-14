@@ -30,6 +30,41 @@ package baritone.api.ml;
 public interface ICostAdjuster {
 
     /**
+     * Read access to the world for the calculation an adjuster belongs to.
+     * <p>
+     * Path calculation happens on its own thread against a snapshot of the world, so an adjuster must not reach for
+     * the live world itself. This is that snapshot, and it is safe to call from the calculating thread only.
+     */
+    interface Blocks {
+
+        /**
+         * @return The state at that position. Only meaningful when {@link #isLoaded} says so.
+         */
+        net.minecraft.world.level.block.state.BlockState get(int x, int y, int z);
+
+        boolean isLoaded(int x, int z);
+    }
+
+    /**
+     * Creates one adjuster per path calculation.
+     * <p>
+     * Per calculation rather than one shared instance, because the interesting implementations cache: A* asks about
+     * hundreds of thousands of candidates and the same situation comes up thousands of times within one calculation.
+     * A fresh instance per calculation is thread-confined, so that cache needs no synchronization and no
+     * invalidation.
+     */
+    @FunctionalInterface
+    interface Factory {
+
+        /**
+         * @param baritone The instance calculating
+         * @param blocks   The world snapshot for this calculation
+         * @return An adjuster, or {@code null} to sit this calculation out
+         */
+        ICostAdjuster create(baritone.api.IBaritone baritone, Blocks blocks);
+    }
+
+    /**
      * @param moveOrdinal The ordinal of the movement kind being considered
      * @param srcX        Source block x
      * @param srcY        Source block y

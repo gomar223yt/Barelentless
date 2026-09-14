@@ -40,14 +40,18 @@ import baritone.api.IBaritone;
 IBaritone baritone = BaritoneAPI.getProvider().getPrimaryBaritone();
 ```
 
-From there, four subsystems:
+From there:
 
 | Call | What it gives you |
 |---|---|
 | `baritone.getControlAPI()` | the movement and aim pipeline |
 | `baritone.getScriptAPI()` | movement and aim written as formulas |
+| `baritone.getCostRegistry()` | what the pathfinder is told things cost, i.e. which way it goes |
 | `baritone.getLearningAPI()` | what the bot has learned from what it has done |
-| `baritone.getPathingBehavior()`, `getCustomGoalProcess()`, … | the pathing API, unchanged from upstream |
+| `baritone.getPathingControlManager().registerProcess(…)` | your own process, competing with mine/follow/build |
+| `baritone.getCommandManager().getRegistry().register(…)` | your own chat command |
+| `baritone.getGameEventHandler().registerEventListener(…)` | every tick, packet, chunk and path event |
+| `baritone.getCustomGoalProcess().setGoalAndPath(…)` | send it somewhere, with your own `Goal` |
 
 ## Shaping movement
 
@@ -129,6 +133,38 @@ scripts.newContext().describeVariables().forEach(System.out::println);
 scripts.check(userTypedExpression);           // throws ScriptException if it is wrong
 ```
 
+## Changing which way it goes
+
+Shapers change how the bot walks. To change *where* it decides to walk, adjust what the pathfinder is told things
+cost. Avoid someone's farmland, prefer lit corridors at night, route around the area your own mod is building in:
+
+```java
+ICostRegistry costs = baritone.getCostRegistry();
+
+ICostRegistry.Registration handle = costs.register("myAddon:avoidFarmland", (instance, blocks) -> {
+    // one adjuster per path calculation, so this cache is thread-confined and needs no synchronization
+    Long2DoubleMap cache = new Long2DoubleOpenHashMap();
+
+    return (move, srcX, srcY, srcZ, destX, destY, destZ, cost) -> {
+        if (!blocks.isLoaded(destX, destZ)) {
+            return cost;
+        }
+        return blocks.get(destX, destY - 1, destZ).getBlock() == Blocks.FARMLAND ? cost * 5 : cost;
+    };
+});
+```
+
+Every registered adjuster runs in turn, each seeing the cost the previous one left. The result is validated before
+use — anything not finite and positive is discarded and the original kept — so a broken adjuster degrades into
+having no opinion rather than into paths through lava.
+
+**This is the hottest code in the mod.** A* asks about hundreds of thousands of candidates per calculation; an
+adjuster that takes a microsecond adds a fifth of a second to every path. Cache per *situation*, not per candidate —
+the same question repeats thousands of times within one calculation, which is why the factory hands you a fresh
+instance to cache in. `control costs` shows what your adjuster actually did.
+
+The learning subsystem's own cost adjustment goes through this same public registry, not through a private hook.
+
 ## Reading what the bot has learned
 
 ```java
@@ -167,6 +203,26 @@ ModelIO.save(model, path, Map.of("trainedOn", "12345 samples"));
 
 `MlDiagnostics.runAll()` gradient-checks every operation against central differences, which is also what
 `ml selftest` runs in game.
+
+## What you cannot do through the API
+
+Being straight about the edges, because finding them yourself at 2am is worse:
+
+- **Add a new movement type to the pathfinder.** `Moves` is an enum in the internals, and A* iterates its values, so
+  an addon cannot add "grapple hook" as a thing the search considers. You can make existing movements cheaper or
+  more expensive (above), and you can take over execution entirely once a path is being followed (shapers, or
+  `requestCommand`), but the search space itself is fixed.
+- **Add a setting to `Settings`.** It is a class of fields, read reflectively by the `set` command. Keep your own
+  config; you can validate expressions against the script vocabulary with `IScriptAPI#check` if you want the same
+  language in it.
+- **Change how a specific movement class executes.** `MovementParkour` and friends are internal. In practice a
+  shaper at a high priority gets you there, since it sees every tick of that movement and can overwrite the whole
+  command - but it is not a subclass hook.
+- **Run a script that keeps state across ticks.** The scripting language has no variables that survive a tick and no
+  loops, on purpose. Anything stateful is a Java shaper.
+
+Everything else the bot does to move - the keys, the movement vector, the aim, route preference, what it learns,
+when it paths and where to - is reachable from `baritone.api`.
 
 ## Stability
 

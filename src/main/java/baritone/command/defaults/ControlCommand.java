@@ -97,6 +97,20 @@ public class ControlCommand extends Command {
                 logDirect("Tracing disabled.");
                 break;
             }
+            case "costs": {
+                args.requireMax(0);
+                logDirect("Registered path cost adjusters, in the order they run:");
+                if (this.baritone.getCostRegistry().registrations().isEmpty()) {
+                    logDirect("  (none)");
+                }
+                for (baritone.api.pathing.calc.ICostRegistry.Registration registration
+                        : this.baritone.getCostRegistry().registrations()) {
+                    logDirect("  " + registration.name());
+                }
+                long[] statistics = this.baritone.getCostRegistry().lastCalculationStatistics();
+                logDirect("Last calculation: adjusted " + statistics[0] + " of " + statistics[1] + " candidates");
+                break;
+            }
             case "vars": {
                 args.requireMax(0);
                 ScriptContext vocabulary = new ScriptBindings().getContext();
@@ -198,7 +212,7 @@ public class ControlCommand extends Command {
     public Stream<String> tabComplete(String label, IArgConsumer args) throws CommandException {
         if (args.hasExactlyOne()) {
             return new TabCompleteHelper()
-                    .append("status", "list", "vars", "script", "trace", "untrace", "remove")
+                    .append("status", "list", "vars", "costs", "script", "trace", "untrace", "remove")
                     .filterPrefix(args.getString())
                     .stream();
         }
@@ -222,6 +236,7 @@ public class ControlCommand extends Command {
                 "> control trace - Enable tracing, then show what each stage changed",
                 "> control untrace - Stop tracing",
                 "> control remove <name> - Remove a shaper by name",
+                "> control costs - Registered path cost adjusters, and what they did last calculation",
                 "",
                 "Scripts let you write movement and aim yourself, as formulas in a text file, with no rebuild:",
                 "> control vars - Every variable and function a script can use",

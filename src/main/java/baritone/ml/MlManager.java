@@ -20,6 +20,7 @@ package baritone.ml;
 import baritone.Baritone;
 import baritone.api.event.events.TickEvent;
 import baritone.api.event.events.WorldEvent;
+import baritone.api.ml.ICostAdjuster;
 import baritone.api.ml.ILearningAPI;
 import baritone.api.ml.Losses;
 import baritone.api.ml.Tensor;
@@ -38,7 +39,6 @@ import baritone.api.utils.Helper;
 import baritone.api.utils.BetterBlockPos;
 import baritone.api.utils.Rotation;
 import baritone.behavior.Behavior;
-import baritone.pathing.movement.CalculationContext;
 import baritone.utils.BlockStateInterface;
 import net.minecraft.world.phys.Vec3;
 
@@ -141,6 +141,7 @@ public final class MlManager extends Behavior implements ILearningAPI, Helper {
     private NeuralAimShaper aimShaper;
     private LearnedCautionShaper cautionShaper;
     private MovementPolicyShaper policyShaper;
+    private baritone.api.pathing.calc.ICostRegistry.Registration costRegistration;
 
     // per-tick state shared with the shapers
     private float[] stateFeatures = new float[StateEncoder.FEATURES];
@@ -214,6 +215,12 @@ public final class MlManager extends Behavior implements ILearningAPI, Helper {
         if (this.cautionShaper == null) {
             this.cautionShaper = new LearnedCautionShaper(this);
             this.baritone.getControlAPI().registerInputShaper("learnedCaution", 600, this.cautionShaper);
+        }
+        if (this.costRegistration == null) {
+            // learning's own cost adjuster goes through the same public registry an addon would use, rather than
+            // being wired into the pathfinder specially
+            this.costRegistration = this.baritone.getCostRegistry()
+                    .register("learnedCosts", (instance, blocks) -> newCostAdjuster(blocks));
         }
         if (this.policyShaper == null) {
             this.policyShaper = new MovementPolicyShaper(this);
@@ -814,14 +821,15 @@ public final class MlManager extends Behavior implements ILearningAPI, Helper {
      * Creates the cost adjuster for one path calculation, or {@code null} when learned costs are off or the memory is
      * too sparse to be worth consulting.
      */
-    public LearnedCostAdjuster newCostAdjuster(CalculationContext context) {
+    public LearnedCostAdjuster newCostAdjuster(ICostAdjuster.Blocks blocks) {
         if (!Baritone.settings().mlEnabled.value || !Baritone.settings().mlLearnedCosts.value) {
             return null;
         }
         if (this.memory.size() < 200) {
+            // below this the memory has not seen enough to have an opinion worth biasing a search with
             return null;
         }
-        return new LearnedCostAdjuster(this.memory, context.bsi,
+        return new LearnedCostAdjuster(this.memory, blocks,
                 Math.max(0, Math.min(1, Baritone.settings().mlCostInfluence.value)));
     }
 
