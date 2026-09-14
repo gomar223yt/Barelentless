@@ -32,7 +32,6 @@ import baritone.api.utils.Helper;
 import baritone.api.utils.Rotation;
 import baritone.api.utils.input.Input;
 import baritone.behavior.Behavior;
-import baritone.control.shaper.HumanAimShaper;
 import net.minecraft.world.phys.Vec3;
 
 import java.util.ArrayList;
@@ -78,9 +77,8 @@ public final class ControlManager extends Behavior implements IControlAPI, Helpe
 
     public ControlManager(Baritone baritone) {
         super(baritone);
-        // Built-in shapers live in the same pipeline as anything an addon registers, at documented priorities, so
-        // they can be inspected, reordered around, or removed entirely like any other stage.
-        registerRotationShaper("humanAim", 500, new HumanAimShaper());
+        // Built-in shaping now lives in the motion profile, registered by ProfileManager at priority 300, so that
+        // gait and aim are one set of dials rather than two implementations that could disagree.
     }
 
     // ----------------------------------------------------------------------------------------------- registration

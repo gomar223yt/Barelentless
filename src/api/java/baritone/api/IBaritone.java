@@ -22,6 +22,7 @@ import baritone.api.behavior.IPathingBehavior;
 import baritone.api.cache.IWorldProvider;
 import baritone.api.command.manager.ICommandManager;
 import baritone.api.control.IControlAPI;
+import baritone.api.control.profile.IProfileAPI;
 import baritone.api.control.script.IScriptAPI;
 import baritone.api.pathing.calc.ICostRegistry;
 import baritone.api.ml.ILearningAPI;
@@ -121,6 +122,15 @@ public interface IBaritone {
      * @see IControlAPI
      */
     IControlAPI getControlAPI();
+
+    /**
+     * Returns the {@link IProfileAPI} for this instance: how the bot walks and how it turns, as dials rather than
+     * code - speeds, acceleration, overshoot, spread, edge caution, sprint policy.
+     *
+     * @return The {@link IProfileAPI} instance
+     * @see IProfileAPI
+     */
+    IProfileAPI getProfileAPI();
 
     /**
      * Returns the {@link ICostRegistry} for this instance: what the pathfinder is told candidate movements cost,

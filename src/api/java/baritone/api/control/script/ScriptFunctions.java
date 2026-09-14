@@ -115,6 +115,8 @@ public final class ScriptFunctions {
         x ^= x >>> 29;
         x *= 0xBF58476D1CE4E5B9L;
         x ^= x >>> 32;
-        return (x >>> 11) / (double) (1L << 52) * 2 - 1;
+        // 53 significant bits shifted out, so the divisor is 2^53 to land in [0, 1) before the rescale;
+        // dividing by 2^52 would quietly produce [-1, 3] and a "random" spread biased upward
+        return (x >>> 11) / (double) (1L << 53) * 2 - 1;
     }
 }

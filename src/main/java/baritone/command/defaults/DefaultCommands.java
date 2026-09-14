@@ -42,6 +42,7 @@ public final class DefaultCommands {
                 new VersionCommand(baritone),
                 new MlCommand(baritone),
                 new ControlCommand(baritone),
+                new ProfileCommand(baritone),
                 new RepackCommand(baritone),
                 new BuildCommand(baritone),
                 //new SchematicaCommand(baritone),

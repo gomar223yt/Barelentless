@@ -45,6 +45,7 @@ From there:
 | Call | What it gives you |
 |---|---|
 | `baritone.getControlAPI()` | the movement and aim pipeline |
+| `baritone.getProfileAPI()` | how it walks and turns, as dials: speeds, acceleration, overshoot, spread |
 | `baritone.getScriptAPI()` | movement and aim written as formulas |
 | `baritone.getCostRegistry()` | what the pathfinder is told things cost, i.e. which way it goes |
 | `baritone.getLearningAPI()` | what the bot has learned from what it has done |
@@ -52,6 +53,40 @@ From there:
 | `baritone.getCommandManager().getRegistry().register(…)` | your own chat command |
 | `baritone.getGameEventHandler().registerEventListener(…)` | every tick, packet, chunk and path event |
 | `baritone.getCustomGoalProcess().setGoalAndPath(…)` | send it somewhere, with your own `Goal` |
+
+## Tuning gait and aim without a shaper
+
+Most of what people want to change is a number, not a behaviour. A profile is that set of numbers, applied by a
+built-in shaper at priority 300:
+
+```java
+MotionProfile profile = baritone.getProfileAPI().active();
+
+profile.set(AimKnob.MAX_YAW_SPEED, 18)
+       .set(AimKnob.RESPONSIVENESS, 0.3)
+       .set(AimKnob.OVERSHOOT, 0.08)
+       .set(AimKnob.JITTER, 0.4)          // per-tick spread
+       .set(AimKnob.DRIFT, 0.8)           // slow smooth wander
+       .set(AimKnob.REACTION_TICKS, 2)
+       .set(GaitKnob.ACCELERATION_TICKS, 4)
+       .set(GaitKnob.CORNER_LEAN, 0.4)
+       .set(GaitKnob.EDGE_CAUTION, 0.6)
+       .setEnabled(true);
+
+// spread everywhere except where a block break depends on the angle
+profile.set(RotationTarget.Purpose.BLOCK_INTERACT, AimKnob.JITTER, 0);
+```
+
+Dials are also addressable by name, which is what a config screen wants:
+
+```java
+profile.setByName("gait.speed", 0.8);
+profile.setByName("movement.jitter", 3);
+MotionProfile.vocabulary().forEach((key, description) -> ...);   // every dial, with descriptions
+```
+
+Profiles serialise to and from plain `key = value` text (`profile.save()` / `MotionProfile.load(...)`), writing only
+what differs from the default, so you can ship one with your mod or let users swap them.
 
 ## Shaping movement
 

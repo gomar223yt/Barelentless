@@ -95,6 +95,52 @@ Aim gains a velocity that accelerates into a turn, decelerates out of it, and ov
 corrections before settling — instead of teleporting to the target angle in one tick. Applies only to non-precise
 targets.
 
+### Tuning how it walks and turns, without writing anything
+
+Before writing a shaper or a script, there is a set of dials that covers what most people actually want to change.
+`profile dials` lists them; `profile set <dial> <value>` changes one live.
+
+**How it turns** (`aim.*`) — `maxYawSpeed`, `maxPitchSpeed`, `responsiveness` (fraction of the error covered per
+tick), `acceleration` (how fast the turn builds up), `overshoot` and `overshootThreshold` (swing past a big
+correction and settle), `jitter` (per-tick spread), `drift` and `driftSpeed` (slow smooth wander), `reactionTicks`
+and `reactionThreshold` (a beat before reacting to something that just appeared), `snapBelow`, `sprintPenalty`,
+`shapePrecise`, `noiseOnPrecise`.
+
+**How it walks** (`gait.*`) — `speed`, `accelerationTicks` and `brakingTicks` (ease in and out instead of
+teleporting into motion), `strafe`, `strafeSmoothing`, `jitter`, `cornerLean` (arc through corners instead of
+pivoting), `sprintPolicy`, `edgeCaution`/`edgeLookahead`/`edgeSneak`, `hesitation`, `sneakScale`.
+
+Jitter and drift are different things and are dialled separately: jitter is per-tick white noise, the tremor of a
+hand that is not perfectly still; drift is a slow smooth wander that makes a view look alive rather than vibrating.
+Neither accumulates, so spread never pulls aim off target — it just stops it being exactly on it.
+
+**Per purpose.** Any aim dial can be overridden for one kind of rotation:
+
+```
+profile set aim.jitter 1.5          # spread everywhere
+profile set block.jitter 0          # except where a block break depends on it
+profile set block.maxYawSpeed 60    # and turn faster when lining one up
+```
+
+That is the difference between usable spread and none: without per-purpose overrides you have to tune for the
+strictest case and lose the effect everywhere else.
+
+```
+profile               show the active profile
+profile dials         every dial with a description
+profile set|get       change or read one
+profile on|off        apply this profile, or stop
+profile list|use|save profiles in baritone/profiles/
+profile reset         back to defaults
+```
+
+Three examples are written to `baritone/profiles/` on first use — `human`, `careful`, `machine`. Nothing is applied
+until `profile on` or `profile use`. The old `humanAim` settings still work and now drive the same implementation,
+so there are no longer two things shaping aim that could disagree.
+
+Whatever a profile does, the pipeline still clamps aim inside the tolerance of whatever asked for the rotation.
+Turning spread to maximum makes aim look drunk; it cannot cost you a block break.
+
 ### Writing movement and aim yourself, as formulas
 
 Registering a shaper means writing Java and rebuilding the mod. That is the wrong price for "make it slow down near

@@ -244,6 +244,25 @@ public class ControlScriptTest {
     }
 
     @Test
+    public void noiseStaysInItsAdvertisedRange() {
+        // the documented range is [-1, 1]; getting the divisor wrong in the hash would widen it silently, and a
+        // script using noise() for spread would produce a bias instead of a wander
+        ScriptContext context = context();
+        Expression noise = ExpressionParser.compile("noise(distXZ)", context);
+        double[] frame = new double[context.frameSize()];
+        int slot = context.slotOf("distXZ");
+        double sum = 0;
+        final int samples = 20000;
+        for (int i = 0; i < samples; i++) {
+            frame[slot] = i * 0.013;
+            double value = noise.evaluate(frame);
+            assertTrue("noise out of range: " + value, value >= -1 && value <= 1);
+            sum += value;
+        }
+        assertTrue("noise is biased, mean " + sum / samples, Math.abs(sum / samples) < 0.05);
+    }
+
+    @Test
     public void evaluationIsFastEnoughForEveryTick() {
         ScriptContext context = context();
         ControlScript script = ControlScript.parse(String.join("\n",
