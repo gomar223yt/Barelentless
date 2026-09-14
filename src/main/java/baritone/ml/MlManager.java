@@ -185,7 +185,7 @@ public final class MlManager extends Behavior implements ILearningAPI, Helper {
     public MlManager(Baritone baritone) {
         super(baritone);
         this.directory = baritone.getDirectory().resolve("ml");
-        this.memory = new EpisodicMemory(LearnedCostAdjuster.KEY_FEATURES, 200_000, 8, 12, new Random(0xBA217091L));
+        this.memory = new EpisodicMemory(LearnedCostAdjuster.KEY_FEATURES, 200_000, new Random(0xBA217091L));
         this.aimSamples = new ReplayBuffer<>(20_000, this.random);
         this.movementSamples = new ReplayBuffer<>(50_000, this.random);
         this.featureStatistics = new RunningStatistics(StateEncoder.FEATURES);

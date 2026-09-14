@@ -126,12 +126,20 @@ A network generalizes, which is what makes it useful and also what makes it wron
 specific ledge in your base that needs a late jump looks, to a network, like a thousand ordinary ledges.
 
 `EpisodicMemory` keeps that ledge as its own record, with its own measured mean, its own variance and its own
-confidence, indexed by LSH so lookup stays fast at hundreds of thousands of records. Meeting the same situation again
+confidence, indexed by LSH so lookup stays fast at hundreds of thousands of records — measured at ~14 µs per query at
+200 000 records, with full recall of the near-identical situations that matter. Meeting the same situation again
 *updates* the record rather than appending a duplicate — so after a hundred jumps off the same kind of ledge, the
 record knows both the average cost and how reliable that average is. The bot can tell "this works" from "this worked
 once".
 
 The network handles situations never seen before; the memory handles the ones that have been.
+
+**How it stays fast.** Keys live in one contiguous float array rather than scattered per-record arrays, buckets are
+chains through primitive int arrays rather than lists of boxed integers, candidate de-duplication uses a query stamp
+instead of a per-query array the size of the memory, and the hash bit count is derived from capacity so buckets hold
+about one record each. Together those took a query at 200 000 records from ~160 µs to ~14 µs. The parameters were
+picked from measurements, not taste: more bits is faster and loses recall on marginal matches, and the twelve tables
+are what buys that recall back.
 
 ### The aim model
 

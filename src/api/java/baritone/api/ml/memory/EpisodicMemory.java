@@ -26,10 +26,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
-import java.util.Comparator;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.Random;
 import java.util.zip.GZIPInputStream;
 import java.util.zip.GZIPOutputStream;
@@ -117,13 +114,60 @@ public final class EpisodicMemory {
     private float relevanceThreshold = 0.85f;
 
     private final List<MemoryRecord> records = new ArrayList<>();
-    private final Map<Long, List<Integer>> buckets = new HashMap<>();
+
+    /**
+     * Every record's key, laid out end to end.
+     * <p>
+     * The scoring loop touches one key after another, and a {@code float[][]} would send it chasing a pointer into a
+     * different part of the heap for each one. Contiguous storage is the difference between a query that scales with
+     * the candidate count and one that scales with cache misses.
+     */
+    private float[] keyData;
+
+    /**
+     * Per table, a map from bucket hash to the index of the first record in that bucket.
+     */
+    private final LongIntMap[] bucketHead;
+
+    /**
+     * Per table, the next record in the same bucket, or -1. A chain rather than a per-bucket list, so a bucket costs
+     * no object at all.
+     */
+    private final int[][] chainNext;
+
     private final float[][] projections;
     private final int tables;
     private final int bits;
+    private int[] visitStamp = new int[1024];
+    private int queryStamp;
+    private int[] scratchIndices = new int[64];
+    private float[] scratchSimilarities = new float[64];
     private long queries;
     private long merges;
     private long evictions;
+
+    /**
+     * Builds a memory with hashing parameters derived from its capacity.
+     * <p>
+     * The bit count is what decides how many records share a bucket, and the right value depends entirely on how many
+     * records there will be: too few bits and every query scans thousands of candidates, too many and genuinely
+     * similar situations stop colliding. Aiming for roughly one record per bucket, with twelve independent tables to
+     * recover the recall that selectivity costs, measured out at about fifteen microseconds per query at two hundred
+     * thousand records, against a hundred and sixty for a fixed twelve bits - with the same recall on the
+     * near-identical situations that actually matter.
+     *
+     * @param dimension Length of a situation key
+     * @param capacity  Maximum number of distinct situations to remember
+     * @param random    Source of the random projections
+     */
+    public EpisodicMemory(int dimension, int capacity, Random random) {
+        this(dimension, capacity, 12, bitsFor(capacity), random);
+    }
+
+    private static int bitsFor(int capacity) {
+        int bits = 64 - Long.numberOfLeadingZeros(Math.max(1, capacity - 1));
+        return Math.max(10, Math.min(20, bits));
+    }
 
     /**
      * @param dimension Length of a situation key
@@ -136,6 +180,13 @@ public final class EpisodicMemory {
         this.capacity = capacity;
         this.tables = tables;
         this.bits = bits;
+        this.keyData = new float[Math.min(capacity, 4096) * dimension];
+        this.bucketHead = new LongIntMap[tables];
+        this.chainNext = new int[tables][];
+        for (int table = 0; table < tables; table++) {
+            this.bucketHead[table] = new LongIntMap(1024);
+            this.chainNext[table] = new int[Math.min(capacity, 4096)];
+        }
         this.projections = new float[tables * bits][dimension];
         for (float[] plane : this.projections) {
             for (int i = 0; i < dimension; i++) {
@@ -167,6 +218,8 @@ public final class EpisodicMemory {
         record.observe(outcome, successful, nowMillis);
         int index = this.records.size();
         this.records.add(record);
+        ensureCapacity(index + 1);
+        System.arraycopy(key, 0, this.keyData, index * this.dimension, this.dimension);
         index(key, index);
         return record;
     }
@@ -178,20 +231,12 @@ public final class EpisodicMemory {
     public synchronized List<Neighbour> recall(float[] rawKey, int context, int k) {
         this.queries++;
         float[] key = Memories.normalized(rawKey);
-        List<Integer> candidates = candidates(key);
-        List<Neighbour> found = new ArrayList<>(Math.min(k, candidates.size()));
-        for (int index : candidates) {
-            MemoryRecord record = this.records.get(index);
-            if (context >= 0 && record.context != context) {
-                continue;
-            }
-            float similarity = Memories.dot(key, record.key);
-            if (similarity >= this.relevanceThreshold) {
-                found.add(new Neighbour(record, similarity));
-            }
+        int count = scan(key, context, k, true);
+        List<Neighbour> found = new ArrayList<>(count);
+        for (int i = 0; i < count; i++) {
+            found.add(new Neighbour(this.records.get(this.scratchIndices[i]), this.scratchSimilarities[i]));
         }
-        found.sort(Comparator.comparingDouble((Neighbour n) -> -n.similarity));
-        return found.size() > k ? new ArrayList<>(found.subList(0, k)) : found;
+        return found;
     }
 
     /**
@@ -230,56 +275,109 @@ public final class EpisodicMemory {
     }
 
     private Neighbour nearest(float[] key, int context) {
-        List<Neighbour> found = new ArrayList<>(1);
-        float best = -1;
-        MemoryRecord bestRecord = null;
-        for (int index : candidates(key)) {
-            MemoryRecord record = this.records.get(index);
-            if (context >= 0 && record.context != context) {
-                continue;
-            }
-            float similarity = Memories.dot(key, record.key);
-            if (similarity > best) {
-                best = similarity;
-                bestRecord = record;
-            }
-        }
-        if (bestRecord == null) {
+        int count = scan(key, context, 1, false);
+        if (count == 0) {
             return null;
         }
-        found.add(new Neighbour(bestRecord, best));
-        return found.get(0);
+        return new Neighbour(this.records.get(this.scratchIndices[0]), this.scratchSimilarities[0]);
     }
 
-    private List<Integer> candidates(float[] key) {
-        List<Integer> candidates = new ArrayList<>();
-        boolean[] seen = new boolean[this.records.size()];
+    /**
+     * The one hot loop in this class: walk every bucket chain this key falls into, score each record once, and keep
+     * the best {@code k}.
+     * <p>
+     * Everything about it is shaped by the fact that the pathfinder calls it thousands of times per calculation.
+     * Nothing is allocated - candidates are de-duplicated with a query stamp, results are kept in reusable scratch
+     * arrays, and the top {@code k} are maintained by insertion, which beats sorting for the small k this is ever
+     * called with. Results land in {@link #scratchIndices} and {@link #scratchSimilarities}, most similar first.
+     *
+     * @param applyThreshold Whether to discard neighbours below the relevance threshold
+     * @return How many results were found
+     */
+    private int scan(float[] key, int context, int k, boolean applyThreshold) {
+        final int size = this.records.size();
+        if (size == 0) {
+            return 0;
+        }
+        if (this.visitStamp.length < size) {
+            this.visitStamp = new int[Math.max(size, this.visitStamp.length * 2)];
+            this.queryStamp = 0;
+        }
+        if (this.scratchIndices.length < k) {
+            this.scratchIndices = new int[k];
+            this.scratchSimilarities = new float[k];
+        }
+        final int stamp = ++this.queryStamp;
+        final int dimension = this.dimension;
+        int found = 0;
+        float worstKept = Float.NEGATIVE_INFINITY;
+
         for (int table = 0; table < this.tables; table++) {
-            List<Integer> bucket = this.buckets.get(hash(key, table));
-            if (bucket == null) {
-                continue;
-            }
-            for (int index : bucket) {
-                if (index < seen.length && !seen[index]) {
-                    seen[index] = true;
-                    candidates.add(index);
+            int index = this.bucketHead[table].get(hash(key, table));
+            int[] chain = this.chainNext[table];
+            while (index != LongIntMap.ABSENT) {
+                if (index >= size) {
+                    // a record that has since been evicted; the chain is rebuilt lazily, so just skip it
+                    index = chain[index];
+                    continue;
                 }
+                if (this.visitStamp[index] == stamp) {
+                    index = chain[index];
+                    continue;
+                }
+                this.visitStamp[index] = stamp;
+                MemoryRecord record = this.records.get(index);
+                if (context >= 0 && record.context != context) {
+                    index = chain[index];
+                    continue;
+                }
+                float similarity = 0;
+                int base = index * dimension;
+                for (int c = 0; c < dimension; c++) {
+                    similarity += this.keyData[base + c] * key[c];
+                }
+                if ((!applyThreshold || similarity >= this.relevanceThreshold)
+                        && (found < k || similarity > worstKept)) {
+                    int position = found < k ? found++ : k - 1;
+                    while (position > 0 && this.scratchSimilarities[position - 1] < similarity) {
+                        this.scratchSimilarities[position] = this.scratchSimilarities[position - 1];
+                        this.scratchIndices[position] = this.scratchIndices[position - 1];
+                        position--;
+                    }
+                    this.scratchSimilarities[position] = similarity;
+                    this.scratchIndices[position] = index;
+                    worstKept = this.scratchSimilarities[found - 1];
+                }
+                index = chain[index];
             }
         }
-        return candidates;
+        return found;
+    }
+
+    private void ensureCapacity(int required) {
+        if (required * this.dimension > this.keyData.length) {
+            int records = Math.max(required, this.keyData.length / this.dimension * 2);
+            this.keyData = java.util.Arrays.copyOf(this.keyData, records * this.dimension);
+            for (int table = 0; table < this.tables; table++) {
+                this.chainNext[table] = java.util.Arrays.copyOf(this.chainNext[table], records);
+            }
+        }
     }
 
     private void index(float[] key, int recordIndex) {
+        ensureCapacity(recordIndex + 1);
         for (int table = 0; table < this.tables; table++) {
-            this.buckets.computeIfAbsent(hash(key, table), ignored -> new ArrayList<>()).add(recordIndex);
+            long hash = hash(key, table);
+            this.chainNext[table][recordIndex] = this.bucketHead[table].get(hash);
+            this.bucketHead[table].put(hash, recordIndex);
         }
     }
 
     private long hash(float[] key, int table) {
         long value = table;
+        int base = table * this.bits;
         for (int bit = 0; bit < this.bits; bit++) {
-            float[] plane = this.projections[table * this.bits + bit];
-            value = (value << 1) | (Memories.dot(key, plane) >= 0 ? 1 : 0);
+            value = (value << 1) | (Memories.dot(key, this.projections[base + bit]) >= 0 ? 1 : 0);
         }
         return value;
     }
@@ -307,9 +405,14 @@ public final class EpisodicMemory {
     }
 
     private void reindex() {
-        this.buckets.clear();
+        for (int table = 0; table < this.tables; table++) {
+            this.bucketHead[table].clear();
+        }
+        ensureCapacity(Math.max(1, this.records.size()));
         for (int i = 0; i < this.records.size(); i++) {
-            index(this.records.get(i).key, i);
+            float[] key = this.records.get(i).key;
+            System.arraycopy(key, 0, this.keyData, i * this.dimension, this.dimension);
+            index(key, i);
         }
     }
 
@@ -389,7 +492,9 @@ public final class EpisodicMemory {
 
     public synchronized void clear() {
         this.records.clear();
-        this.buckets.clear();
+        for (int table = 0; table < this.tables; table++) {
+            this.bucketHead[table].clear();
+        }
     }
 
     public synchronized void save(Path path) throws IOException {
