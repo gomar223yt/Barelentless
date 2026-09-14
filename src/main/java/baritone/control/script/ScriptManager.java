@@ -22,6 +22,8 @@ import baritone.api.control.ControlContext;
 import baritone.api.control.IControlAPI;
 import baritone.api.control.script.ControlScript;
 import baritone.api.control.script.ExpressionParser;
+import baritone.api.control.script.IScriptAPI;
+import baritone.api.control.script.ScriptContext;
 import baritone.api.control.script.ScriptException;
 import baritone.api.pathing.movement.IMovement;
 import baritone.api.pathing.path.IPathExecutor;
@@ -49,7 +51,7 @@ import java.util.stream.Stream;
  *
  * @author Barelentless
  */
-public final class ScriptManager {
+public final class ScriptManager implements IScriptAPI {
 
     private static final String EXTENSION = ".bar";
 
@@ -65,6 +67,7 @@ public final class ScriptManager {
         this.directory = baritone.getDirectory().resolve("control");
     }
 
+    @Override
     public Path getDirectory() {
         return this.directory;
     }
@@ -74,6 +77,7 @@ public final class ScriptManager {
      *
      * @return A report, one line per script loaded or rejected
      */
+    @Override
     public synchronized List<String> reload() {
         this.problems.clear();
         List<String> report = new ArrayList<>();
@@ -161,6 +165,7 @@ public final class ScriptManager {
     /**
      * Removes every script from the pipeline without deleting anything on disk.
      */
+    @Override
     public synchronized void unloadAll() {
         for (String key : new ArrayList<>(this.shapers.keySet())) {
             unregister(key);
@@ -168,6 +173,7 @@ public final class ScriptManager {
         this.shapers.clear();
     }
 
+    @Override
     public synchronized List<String> describe() {
         List<String> lines = new ArrayList<>();
         for (Map.Entry<String, ScriptedShaper> entry : this.shapers.entrySet()) {
@@ -203,6 +209,7 @@ public final class ScriptManager {
      * Evaluates a single expression against the current game state, for {@code control script eval}. Useful for
      * checking what a variable actually holds right now before building a script around it.
      */
+    @Override
     public double evaluate(String expression) {
         ScriptBindings bindings = new ScriptBindings();
         ControlScript script = ControlScript.parse("let result = " + expression, "eval", bindings.getContext());
@@ -258,8 +265,57 @@ public final class ScriptManager {
     }
 
     /**
+     * Registers a script that lives only in memory. See {@link IScriptAPI#register}.
+     */
+    @Override
+    public synchronized IControlAPI.Registration register(String name, String source) {
+        ScriptBindings bindings = new ScriptBindings();
+        ControlScript script = ControlScript.parse(source, name, bindings.getContext());
+        ScriptedShaper shaper = new ScriptedShaper(script, bindings);
+        if (!shaper.shapesMovement() && !shaper.shapesAim()) {
+            throw new ScriptException("this script sets nothing the pipeline uses");
+        }
+        IControlAPI control = this.baritone.getControlAPI();
+        List<IControlAPI.Registration> registered = new ArrayList<>(2);
+        if (shaper.shapesMovement()) {
+            registered.add(control.registerInputShaper(shaper.name(), script.getPriority(), shaper));
+        }
+        if (shaper.shapesAim()) {
+            registered.add(control.registerRotationShaper(shaper.name(), script.getPriority(), shaper));
+        }
+        return new IControlAPI.Registration() {
+
+            @Override
+            public String name() {
+                return shaper.name();
+            }
+
+            @Override
+            public int priority() {
+                return script.getPriority();
+            }
+
+            @Override
+            public boolean isActive() {
+                return registered.stream().anyMatch(IControlAPI.Registration::isActive);
+            }
+
+            @Override
+            public void close() {
+                registered.forEach(IControlAPI.Registration::close);
+            }
+        };
+    }
+
+    @Override
+    public ScriptContext newContext() {
+        return new ScriptBindings().getContext();
+    }
+
+    /**
      * Checks an expression compiles, without running it.
      */
+    @Override
     public void check(String expression) {
         ScriptBindings bindings = new ScriptBindings();
         ExpressionParser.compile(expression, bindings.getContext());

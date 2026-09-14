@@ -105,6 +105,17 @@ Here are some links to help to get started:
 
 - [Usage (chat control)](USAGE.md)
 
+## This fork
+
+Baritone 1.21.11 with two subsystems added on top, and release jars that are **not obfuscated**:
+
+- **One movement and aim pipeline** anything can insert itself into, with analog movement and
+  purpose-aware aim - see [CONTROL_AND_LEARNING.md](CONTROL_AND_LEARNING.md)
+- **Movement and aim as formulas**, written in text files and reloaded in game, no rebuild
+- **Learning in Java** - no native library, no Python - that records what movements really cost and
+  learns aim from your own mouse movement
+- **[ADDONS.md](ADDONS.md)** - using all of it from your own mod
+
 ## Stars over time
 
 [![Stargazers over time](https://starchart.cc/cabaletta/baritone.svg)](https://starchart.cc/cabaletta/baritone)

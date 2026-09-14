@@ -22,6 +22,7 @@ import baritone.api.behavior.IPathingBehavior;
 import baritone.api.cache.IWorldProvider;
 import baritone.api.command.manager.ICommandManager;
 import baritone.api.control.IControlAPI;
+import baritone.api.control.script.IScriptAPI;
 import baritone.api.ml.ILearningAPI;
 import baritone.api.event.listener.IEventBus;
 import baritone.api.pathing.calc.IPathingControlManager;
@@ -119,6 +120,15 @@ public interface IBaritone {
      * @see IControlAPI
      */
     IControlAPI getControlAPI();
+
+    /**
+     * Returns the {@link IScriptAPI} for this instance: movement and aim written as formulas, loaded from files or
+     * registered from memory by an addon.
+     *
+     * @return The {@link IScriptAPI} instance
+     * @see IScriptAPI
+     */
+    IScriptAPI getScriptAPI();
 
     /**
      * Returns the {@link ILearningAPI} for this instance: what the bot has learned from what it has actually done,

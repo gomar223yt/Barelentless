@@ -166,6 +166,11 @@ public class Baritone implements IBaritone {
     /**
      * Control scripts: user-written movement and aim, loaded from the baritone/control folder.
      */
+    @Override
+    public ScriptManager getScriptAPI() {
+        return this.scriptManager;
+    }
+
     public ScriptManager getScriptManager() {
         return this.scriptManager;
     }

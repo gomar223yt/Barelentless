@@ -165,9 +165,12 @@ public class ProguardTask extends BaritoneGradleTask {
         // API config doesn't require any changes from the changes that we made to the template
         Files.write(getTemporaryFile(compType + PROGUARD_API_CONFIG), api);
 
-        // For the Standalone config, don't keep the API package
+        // The standalone build keeps the API too.
+        //
+        // Upstream strips the keep-api line here, which means the jar people actually install has no usable API in
+        // it - an addon can compile against baritone-api but not call it at runtime. Since this fork's whole point
+        // is that the control and learning pipelines are extensible, the API has to survive into the shipped jar.
         List<String> standalone = new ArrayList<>(template);
-        standalone.removeIf(s -> s.contains("# this is the keep api"));
         standalone.add(2, "-printmapping " + new File(this.getRootRelativeFile(PROGUARD_MAPPING_DIR).toFile(), "mappings-" + addCompTypeFirst("standalone.txt")));
         Files.write(getTemporaryFile(compType + PROGUARD_STANDALONE_CONFIG), standalone);
     }

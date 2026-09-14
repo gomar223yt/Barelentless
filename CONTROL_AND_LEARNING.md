@@ -332,8 +332,11 @@ ml reset confirm    discard everything learned
 
 ### A note on the released jar
 
-The Fabric release is run through ProGuard, so class names in it are obfuscated. Nothing here depends on a class
-name: checkpoints key parameters by registered string names, settings are kept by the ProGuard config, and the
+The Fabric release is still run through ProGuard, but **renaming is off** (`-dontobfuscate`) and `baritone.api.**`
+is kept in every build including standalone, so an addon compiled against the API can actually call it at runtime and
+a stack trace names real classes. See [ADDONS.md](ADDONS.md).
+
+Nothing here depended on a class name even when they were obfuscated: checkpoints key parameters by registered string names, settings are kept by the ProGuard config, and the
 episodic memory files records under identifiers derived from a movement's *geometry* - how far it goes horizontally,
 how far vertically, whether it moves on one axis or two.
 
@@ -342,7 +345,9 @@ silently stopping matching after any release, and the bot forgetting everything 
 a full memory. Geometry survives obfuscation, survives a version bump, and carries real meaning: two movements with
 the same shape face the same problem whatever their class is called.
 
-Memory files record a format version, and one written under the old scheme is refused rather than misread.
+Memory files record a format version, and one written under the old scheme is refused rather than misread. That
+property is kept even though names are no longer obfuscated, because it is also what makes a memory file survive the
+movement classes being reorganised.
 
 ### Files
 

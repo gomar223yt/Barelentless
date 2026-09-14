@@ -5,13 +5,18 @@
 -optimizationpasses 5
 -verbose
 
--allowaccessmodification # anything not kept can be changed from public to private and inlined etc
--overloadaggressively
--dontusemixedcaseclassnames
+# Names are kept in every build of this fork.
+#
+# Obfuscation makes a mod that cannot be extended and cannot be debugged: an addon compiled against the API breaks
+# the moment the release renames the class it calls, a stack trace from a user says "at baritone.a.a(SourceFile)",
+# and anything keyed by a class name silently changes meaning between releases. None of that buys anything here -
+# the source is public. Shrinking and optimization still run, so the jar stays small; only renaming is off.
+-dontobfuscate
 
-# instead of renaming to a, b, c, rename to baritone.a, baritone.b, baritone.c so as to not conflict with minecraft's obfd classes
--flattenpackagehierarchy
--repackageclasses 'baritone'
+-allowaccessmodification # anything not kept can be changed from public to private and inlined etc
+
+# -flattenpackagehierarchy and -repackageclasses are obfuscation steps, and would move classes out of the packages
+# an addon imports them from. Deliberately absent.
 
 # lwjgl is weird
 -dontwarn org.lwjgl.**
