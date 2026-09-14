@@ -915,6 +915,38 @@ public final class Settings {
     public final Setting<Double> mlCautionStrength = new Setting<>(0.7D);
 
     /**
+     * Let a learned policy adjust how a movement is walked: approach speed, strafe, whether to sprint, whether to
+     * take the jump this tick. Requires {@link #mlEnabled}.
+     * <p>
+     * The policy never chooses a direction and never invents a jump the path did not plan for - it only makes
+     * bounded adjustments to the command pathing already produced, and it starts at zero influence and earns the
+     * rest by reinforcement from what actually happens.
+     */
+    public final Setting<Boolean> mlMovement = new Setting<>(false);
+
+    /**
+     * How far the movement policy may adjust the command, from zero to one.
+     */
+    public final Setting<Double> mlMovementStrength = new Setting<>(0.5D);
+
+    /**
+     * Sample the movement policy's actions instead of taking its mean. Exploration is what makes it able to improve
+     * at all - a policy that only ever does what it already believes never discovers anything - but it also makes
+     * movement visibly less consistent. Turn it off to run a trained policy without further learning.
+     */
+    public final Setting<Boolean> mlMovementExplore = new Setting<>(true);
+
+    /**
+     * Width of the movement policy network.
+     */
+    public final Setting<Integer> mlMovementDimension = new Setting<>(64);
+
+    /**
+     * How many finished movements to collect before each reinforcement update.
+     */
+    public final Setting<Integer> mlMovementBatch = new Setting<>(8);
+
+    /**
      * Samples per training step on the background thread.
      */
     public final Setting<Integer> mlBatchSize = new Setting<>(32);

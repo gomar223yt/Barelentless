@@ -30,13 +30,17 @@ import baritone.api.ml.memory.EpisodicMemory;
 import baritone.api.ml.optim.Adam;
 import baritone.api.ml.optim.LearningRateSchedule;
 import baritone.api.ml.rl.PolicyOutput;
+import baritone.api.ml.rl.PpoTrainer;
+import baritone.api.ml.rl.Trajectory;
 import baritone.api.pathing.movement.IMovement;
 import baritone.api.pathing.path.IPathExecutor;
 import baritone.api.utils.Helper;
+import baritone.api.utils.BetterBlockPos;
 import baritone.api.utils.Rotation;
 import baritone.behavior.Behavior;
 import baritone.pathing.movement.CalculationContext;
 import baritone.utils.BlockStateInterface;
+import net.minecraft.world.phys.Vec3;
 
 import java.io.BufferedInputStream;
 import java.io.BufferedOutputStream;
@@ -75,6 +79,7 @@ public final class MlManager extends Behavior implements ILearningAPI, Helper {
 
     private static final String AIM_MODEL_FILE = "aim.brlm";
     private static final String MEMORY_FILE = "memory.brlm";
+    private static final String MOVEMENT_MODEL_FILE = "movement.brlm";
     private static final String STATISTICS_FILE = "features.bin";
 
     /**
@@ -114,8 +119,28 @@ public final class MlManager extends Behavior implements ILearningAPI, Helper {
     private final AtomicBoolean running = new AtomicBoolean();
     private final Object trainerSignal = new Object();
 
+    /**
+     * The movement policy the game thread reads, and the copy the trainer owns. Data collected under an older
+     * snapshot is still valid to train on: each step stores the log probability of the policy that produced it, and
+     * that is exactly what the importance ratio in PPO corrects for.
+     */
+    private volatile MovementPolicyModel liveMovementPolicy;
+    private MovementPolicyModel trainingMovementPolicy;
+    private PpoTrainer movementTrainer;
+    private Adam movementOptimizer;
+
+    private final java.util.concurrent.ConcurrentLinkedQueue<Trajectory> finishedTrajectories =
+            new java.util.concurrent.ConcurrentLinkedQueue<>();
+    private Trajectory movementTrajectory;
+    private double previousDistance = Double.NaN;
+    private float previousHealth;
+    private long policySteps;
+    private float lastPolicyReport = Float.NaN;
+    private String lastPolicyReportText = "";
+
     private NeuralAimShaper aimShaper;
     private LearnedCautionShaper cautionShaper;
+    private MovementPolicyShaper policyShaper;
 
     // per-tick state shared with the shapers
     private float[] stateFeatures = new float[StateEncoder.FEATURES];
@@ -185,6 +210,11 @@ public final class MlManager extends Behavior implements ILearningAPI, Helper {
             this.cautionShaper = new LearnedCautionShaper(this);
             this.baritone.getControlAPI().registerInputShaper("learnedCaution", 600, this.cautionShaper);
         }
+        if (this.policyShaper == null) {
+            this.policyShaper = new MovementPolicyShaper(this);
+            // after caution: caution decides how fast is safe here, the policy works within that
+            this.baritone.getControlAPI().registerInputShaper("movementPolicy", 700, this.policyShaper);
+        }
         this.running.set(true);
         this.trainer = new Thread(this::trainLoop, "Barelentless ML trainer");
         this.trainer.setDaemon(true);
@@ -224,6 +254,19 @@ public final class MlManager extends Behavior implements ILearningAPI, Helper {
         this.liveAimModel.loadStateFrom(this.trainingAimModel);
         this.aimOptimizer = new Adam(this.trainingAimModel.parameters(), 3e-4f, 0.9f, 0.999f, 1e-8f, 1e-5f);
         this.aimSchedule = LearningRateSchedule.cosineWithWarmup(3e-4f, 3e-5f, 200, 20_000);
+
+        int policyHidden = Math.max(16, Baritone.settings().mlMovementDimension.value);
+        this.trainingMovementPolicy = new MovementPolicyModel(policyHidden, this.random);
+        this.liveMovementPolicy = new MovementPolicyModel(policyHidden, this.random);
+        this.liveMovementPolicy.loadStateFrom(this.trainingMovementPolicy);
+        this.movementOptimizer = new Adam(this.trainingMovementPolicy.parameters(), 1e-4f);
+        this.movementTrainer = new PpoTrainer(this.trainingMovementPolicy, this.movementOptimizer, this.random)
+                .setEpochs(3)
+                .setMiniBatch(64)
+                // a small entropy bonus, because this policy only ever sees the data its own behaviour produces:
+                // collapsing early means never discovering that a slower approach would have worked
+                .setEntropyCoefficient(0.004f)
+                .setTargetKl(0.02f);
     }
 
     @Override
@@ -233,6 +276,10 @@ public final class MlManager extends Behavior implements ILearningAPI, Helper {
 
     public AimModel getAimModel() {
         return this.liveAimModel;
+    }
+
+    public MovementPolicyModel getMovementPolicy() {
+        return this.liveMovementPolicy;
     }
 
     @Override
@@ -302,6 +349,7 @@ public final class MlManager extends Behavior implements ILearningAPI, Helper {
         if (this.trackedMovement != null && this.trackedSituation != null && this.trackedTicks > 0) {
             float damage = Math.max(0, this.trackedStartHealth - ctx.player().getHealth());
             boolean successful = this.trackedTicks < this.trackedMovement.getCost() * 3 + 20;
+            finishMovementTrajectory(successful, this.policyShaper == null ? 0f : this.policyShaper.getLastValue());
             MovementExperience experience = new MovementExperience(
                     this.trackedSituation,
                     movementKind(this.trackedMovement),
@@ -352,6 +400,75 @@ public final class MlManager extends Behavior implements ILearningAPI, Helper {
      */
     private static int movementKind(IMovement movement) {
         return Math.abs(movement.getClass().getSimpleName().hashCode()) % 4096;
+    }
+
+    /**
+     * Called by the movement policy shaper each tick it acts.
+     * <p>
+     * The reward for the previous step is settled here rather than when that step was taken, because the world state
+     * visible now is the consequence of that action: progress made towards the destination, time spent, damage taken.
+     * Rewarding a step at the moment it happens would be rewarding an intention.
+     */
+    public void recordPolicyStep(Trajectory.Step step) {
+        IMovement movement = currentMovement();
+        if (movement == null || ctx.player() == null) {
+            return;
+        }
+        if (this.movementTrajectory == null) {
+            this.movementTrajectory = new Trajectory(movementKind(movement));
+            this.previousDistance = Double.NaN;
+        }
+        double distance = distanceTo(movement);
+        float health = ctx.player().getHealth();
+        if (!Double.isNaN(this.previousDistance) && this.movementTrajectory.size() > 0) {
+            float progress = (float) (this.previousDistance - distance);
+            float damage = Math.max(0f, this.previousHealth - health);
+            // progress dominates, a small per-tick cost stops dithering from being free, damage is expensive
+            this.movementTrajectory.reward(progress * 2f - 0.02f - damage * 0.5f);
+        }
+        this.previousDistance = distance;
+        this.previousHealth = health;
+        this.movementTrajectory.add(step);
+        this.policySteps++;
+        if (this.movementTrajectory.size() >= 400) {
+            // something is badly stuck; close the trajectory rather than letting it grow without bound
+            finishMovementTrajectory(false, step.value);
+        }
+    }
+
+    private double distanceTo(IMovement movement) {
+        BetterBlockPos destination = movement.getDest();
+        Vec3 position = ctx.player().position();
+        double dx = destination.x + 0.5 - position.x;
+        double dy = destination.y - position.y;
+        double dz = destination.z + 0.5 - position.z;
+        return Math.sqrt(dx * dx + dy * dy + dz * dz);
+    }
+
+    /**
+     * Closes the current trajectory and hands it to the trainer.
+     *
+     * @param successful     Whether the movement completed rather than failing
+     * @param bootstrapValue The policy's estimate of the state after the last step; zero when the episode truly ended
+     */
+    private void finishMovementTrajectory(boolean successful, float bootstrapValue) {
+        Trajectory trajectory = this.movementTrajectory;
+        this.movementTrajectory = null;
+        this.previousDistance = Double.NaN;
+        if (trajectory == null || trajectory.size() < 2) {
+            return;
+        }
+        trajectory.reward(successful ? 2f : -3f);
+        if (successful) {
+            trajectory.steps().get(trajectory.size() - 1).terminal = true;
+        }
+        trajectory.finish(successful ? 0f : bootstrapValue, 0.99f, 0.95f);
+        this.finishedTrajectories.add(trajectory);
+        // bound the queue: if the trainer cannot keep up, the oldest data is also the most stale
+        while (this.finishedTrajectories.size() > 64) {
+            this.finishedTrajectories.poll();
+        }
+        signalTrainer();
     }
 
     /**
@@ -442,6 +559,10 @@ public final class MlManager extends Behavior implements ILearningAPI, Helper {
 
     @Override
     public void onWorldEvent(WorldEvent event) {
+        // the world is gone; a trajectory that ends in a dimension change did not end because of anything the
+        // policy did, and training on it would teach exactly the wrong lesson
+        this.movementTrajectory = null;
+        this.previousDistance = Double.NaN;
         this.demonstrationFrames.clear();
         this.trackedMovement = null;
         this.trackedSituation = null;
@@ -461,12 +582,16 @@ public final class MlManager extends Behavior implements ILearningAPI, Helper {
             try {
                 int batch = Math.max(4, Baritone.settings().mlBatchSize.value);
                 if (this.aimSamples.size() < batch * 2) {
-                    synchronized (this.trainerSignal) {
-                        this.trainerSignal.wait(2000);
+                    // no aim data yet, but movement trajectories may still be waiting
+                    if (!trainMovementPolicy()) {
+                        synchronized (this.trainerSignal) {
+                            this.trainerSignal.wait(2000);
+                        }
                     }
                     continue;
                 }
                 trainAimStep(batch);
+                trainMovementPolicy();
                 if (this.trainingSteps % 200 == 0) {
                     publishModel();
                 }
@@ -544,6 +669,41 @@ public final class MlManager extends Behavior implements ILearningAPI, Helper {
     }
 
     /**
+     * Runs one PPO update if enough trajectories have finished.
+     *
+     * @return Whether an update was performed
+     */
+    private boolean trainMovementPolicy() {
+        int required = Math.max(2, Baritone.settings().mlMovementBatch.value);
+        if (this.finishedTrajectories.size() < required || this.movementTrainer == null) {
+            return false;
+        }
+        List<Trajectory> batch = new ArrayList<>(required);
+        Trajectory trajectory;
+        while (batch.size() < required && (trajectory = this.finishedTrajectories.poll()) != null) {
+            batch.add(trajectory);
+        }
+        if (batch.isEmpty()) {
+            return false;
+        }
+        PpoTrainer.Report report = this.movementTrainer.update(batch);
+        this.lastPolicyReport = report.policyLoss;
+        this.lastPolicyReportText = report.toString();
+        if (!this.trainingMovementPolicy.isFinite()) {
+            this.lastError = "movement policy diverged, restored from the live snapshot";
+            this.trainingMovementPolicy.loadStateFrom(this.liveMovementPolicy);
+            this.movementOptimizer.resetState();
+            return true;
+        }
+        MovementPolicyModel snapshot =
+                new MovementPolicyModel(Math.max(16, Baritone.settings().mlMovementDimension.value), this.random);
+        snapshot.loadStateFrom(this.trainingMovementPolicy);
+        snapshot.eval();
+        this.liveMovementPolicy = snapshot;
+        return true;
+    }
+
+    /**
      * Publishes the trainer's weights to the model the game thread reads.
      */
     private void publishModel() {
@@ -572,6 +732,10 @@ public final class MlManager extends Behavior implements ILearningAPI, Helper {
             // the live snapshot, not the trainer's working copy: the trainer mutates its weights in place, so writing
             // those from another thread could put a half-applied optimizer step on disk
             ModelIO.save(this.liveAimModel, this.directory.resolve(AIM_MODEL_FILE), metadata);
+            Map<String, String> policyMetadata = new LinkedHashMap<>();
+            policyMetadata.put("features", Integer.toString(StateEncoder.FEATURES));
+            policyMetadata.put("steps", Long.toString(this.policySteps));
+            ModelIO.save(this.liveMovementPolicy, this.directory.resolve(MOVEMENT_MODEL_FILE), policyMetadata);
             this.memory.save(this.directory.resolve(MEMORY_FILE));
             try (DataOutputStream out = new DataOutputStream(new GZIPOutputStream(
                     new BufferedOutputStream(Files.newOutputStream(this.directory.resolve(STATISTICS_FILE)))))) {
@@ -603,6 +767,21 @@ public final class MlManager extends Behavior implements ILearningAPI, Helper {
                 }
             } catch (IOException | RuntimeException e) {
                 this.lastError = "could not load aim model: " + e;
+            }
+        }
+        Path policyFile = this.directory.resolve(MOVEMENT_MODEL_FILE);
+        if (Files.exists(policyFile)) {
+            try {
+                int features = Integer.parseInt(ModelIO.peekMetadata(policyFile).getOrDefault("features", "-1"));
+                if (features != StateEncoder.FEATURES) {
+                    this.lastError = "movement policy was trained on " + features + " features, this build uses "
+                            + StateEncoder.FEATURES + "; starting fresh";
+                } else {
+                    ModelIO.load(this.trainingMovementPolicy, policyFile);
+                    this.liveMovementPolicy.loadStateFrom(this.trainingMovementPolicy);
+                }
+            } catch (IOException | RuntimeException e) {
+                this.lastError = "could not load movement policy: " + e;
             }
         }
         Path memoryFile = this.directory.resolve(MEMORY_FILE);
@@ -674,6 +853,12 @@ public final class MlManager extends Behavior implements ILearningAPI, Helper {
         lines.add("movement samples: " + this.movementSamples.size() + "/" + this.movementSamples.capacity());
         lines.add("memory: " + this.memory.size() + " situations, " + this.memory.totalVisits() + " visits, "
                 + this.memory.getMerges() + " merges, " + this.memory.getEvictions() + " evictions");
+        lines.add("movement policy: " + (this.liveMovementPolicy == null ? "not built"
+                : this.liveMovementPolicy.parameterCount() + " parameters, " + this.policySteps + " steps acted, "
+                + this.finishedTrajectories.size() + " trajectories queued"));
+        if (!this.lastPolicyReportText.isEmpty()) {
+            lines.add("last policy update: " + this.lastPolicyReportText);
+        }
         if (this.cautionShaper != null) {
             lines.add("caution: " + this.cautionShaper.describe());
         }
@@ -717,7 +902,11 @@ public final class MlManager extends Behavior implements ILearningAPI, Helper {
         this.aimSamples.clear();
         this.movementSamples.clear();
         this.featureStatistics.reset();
+        this.finishedTrajectories.clear();
+        this.movementTrajectory = null;
         this.trainingSteps = 0;
+        this.policySteps = 0;
+        this.lastPolicyReportText = "";
         this.demonstrationsRecorded = 0;
         this.lastLoss = Float.NaN;
         this.lastError = "";

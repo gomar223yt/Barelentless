@@ -114,6 +114,7 @@ control remove <n>  remove a shaper by name
 |---|---|---|
 | Aim model | your own mouse movement, plus the bot's | how the view moves, via an aim shaper |
 | Episodic memory | every executed movement's real outcome | pathfinding cost estimates, and how carefully a movement is walked |
+| Movement policy | reinforcement: progress made, time spent, damage taken | approach speed, strafe, sprint and jump timing within a movement |
 
 Baritone estimated the cost of every movement and then never checked whether the estimate was right. The memory
 closes that loop: the situation as it was, the estimate that was made, and the ticks it really took, plus damage
@@ -181,6 +182,31 @@ a situation nobody anticipated — a modded block that is slippery in an unusual
 blocks a doorway — produces caution for exactly the same reason a vanilla one does. This is only expressible at all
 because analog movement exists: "slower" is not something eight booleans can say.
 
+### The movement policy
+
+The one part that learns by trial rather than by imitation. Every tick of an executing movement, the policy proposes
+a bounded adjustment to the command pathing already produced, and is rewarded by what follows: progress towards the
+destination, minus a small per-tick cost so dithering is not free, minus damage. Finishing the movement pays; failing
+it costs.
+
+What it deliberately cannot do:
+
+- it never chooses a direction — it scales the movement vector pathing chose and nudges the strafe;
+- it can decline a jump the path planned, but never invent one — a jump the path did not plan for is how a bot ends
+  up in a hole, while declining one merely wastes a tick;
+- it does not run at all below six hearts, in lava, or on a movement that has to place a block.
+
+Trained with PPO, whose clipped objective bounds how far one update can move the policy away from the one that
+generated the data. That matters more here than in an offline setting: the data is collected by the same agent, while
+someone is watching, and a single over-large update turns a bot that walks into a bot that vibrates.
+
+Data collected under an older snapshot is still valid — each step stores the log probability of the policy that
+produced it, which is exactly what the importance ratio corrects for.
+
+`mlMovementExplore` samples actions rather than taking the mean. Exploration is what makes improvement possible at
+all, and also what makes movement visibly less consistent; turn it off to run a trained policy without further
+learning.
+
 ### Settings
 
 ```
@@ -195,6 +221,10 @@ set mlLearnFromPlayer true  learn from your own mouse movement (default on)
 set mlAimWindow 8           how many past ticks the model reads
 set mlAimDimension 48       model width
 set mlAimDepth 2            transformer blocks
+set mlMovement true         let the policy adjust how movements are walked
+set mlMovementStrength 0.5  how far it may adjust
+set mlMovementExplore true  sample actions (needed to keep learning) or take the mean
+set mlMovementBatch 8       finished movements per reinforcement update
 set mlBatchSize 32          samples per training step
 set mlTrainingDelayMs 25    pause between steps
 ```
@@ -221,6 +251,7 @@ ml reset confirm    discard everything learned
 |---|---|
 | `aim.brlm` | aim model weights, named by parameter path |
 | `memory.brlm` | remembered situations |
+| `movement.brlm` | movement policy weights |
 | `features.bin` | feature normalization statistics |
 
 Checkpoints store parameters by qualified name, so they keep loading after layers are reordered in code; anything
@@ -264,8 +295,9 @@ or standalone:
 java -cp <jar> baritone.api.ml.MlDiagnostics
 ```
 
-15 checks: gradients for elementwise ops, activations, matmul, softmax, layer norm, attention, GRU and every loss;
-end-to-end learning of XOR and of a look-back task that is impossible without working attention; gradient clipping
+16 checks: gradients for elementwise ops, activations, matmul, softmax, layer norm, attention, GRU and every loss;
+end-to-end learning of XOR and of a look-back task that is impossible without working attention; a PPO run that has
+to raise average reward on a task whose answer the policy is never told; gradient clipping
 and non-finite rejection; running statistics; prioritized replay; episodic recall, merging and context isolation;
 checkpoint round-trip.
 
