@@ -124,7 +124,7 @@ public final class LearnedCautionShaper implements IInputShaper {
     }
 
     private static int movementKind(IMovement movement) {
-        return Math.abs(movement.getClass().getSimpleName().hashCode()) % 4096;
+        return MovementKinds.of(movement);
     }
 
     /**

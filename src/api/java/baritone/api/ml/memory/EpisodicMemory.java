@@ -51,7 +51,7 @@ import java.util.zip.GZIPOutputStream;
 public final class EpisodicMemory {
 
     private static final int MAGIC = 0x42524C4D; // "BRLM"
-    private static final int VERSION = 1;
+    private static final int VERSION = 2;
 
     /**
      * A retrieved neighbour and how similar it was to the query.
@@ -529,6 +529,12 @@ public final class EpisodicMemory {
             int version = in.readInt();
             if (version > VERSION) {
                 throw new IOException("memory written by a newer version (" + version + ")");
+            }
+            if (version < VERSION) {
+                // Context identifiers changed meaning in version 2. Loading anyway would not crash - it would do
+                // something worse, and answer queries with records that describe a different kind of movement.
+                throw new IOException("memory was written before the movement identity scheme changed (version "
+                        + version + "); starting fresh");
             }
             int storedDimension = in.readInt();
             if (storedDimension != this.dimension) {

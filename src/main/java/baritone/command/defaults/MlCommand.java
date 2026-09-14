@@ -26,6 +26,7 @@ import baritone.api.command.exception.CommandInvalidStateException;
 import baritone.api.ml.MlDiagnostics;
 import baritone.api.ml.memory.MemoryRecord;
 import baritone.ml.MlManager;
+import baritone.ml.MovementKinds;
 
 import java.util.Arrays;
 import java.util.Comparator;
@@ -112,7 +113,8 @@ public class MlCommand extends Command {
                 records.sort(Comparator.comparingDouble((MemoryRecord record) -> -record.getVisits()));
                 logDirect(records.size() + " remembered situations, showing the " + Math.min(count, records.size())
                         + " most visited:");
-                records.stream().limit(count).forEach(record -> logDirect("  " + record));
+                records.stream().limit(count).forEach(record -> logDirect(
+                        "  " + MovementKinds.describe(record.context) + "  " + record));
                 break;
             }
             case "consolidate": {

@@ -263,6 +263,20 @@ ml consolidate      merge duplicate memories, drop ones that never mattered
 ml reset confirm    discard everything learned
 ```
 
+### A note on the released jar
+
+The Fabric release is run through ProGuard, so class names in it are obfuscated. Nothing here depends on a class
+name: checkpoints key parameters by registered string names, settings are kept by the ProGuard config, and the
+episodic memory files records under identifiers derived from a movement's *geometry* - how far it goes horizontally,
+how far vertically, whether it moves on one axis or two.
+
+That last one is the reason it works at all. Hashing the movement's class name would have meant a memory file
+silently stopping matching after any release, and the bot forgetting everything it had learned while still reporting
+a full memory. Geometry survives obfuscation, survives a version bump, and carries real meaning: two movements with
+the same shape face the same problem whatever their class is called.
+
+Memory files record a format version, and one written under the old scheme is refused rather than misread.
+
 ### Files
 
 `.minecraft/baritone/ml/`

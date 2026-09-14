@@ -398,13 +398,8 @@ public final class MlManager extends Behavior implements ILearningAPI, Helper {
         }
     }
 
-    /**
-     * A stable id per movement class, used as the memory's context so a pillar memory can never answer a parkour
-     * question. String hashing is specified by the language, so this id means the same thing in a memory file written
-     * months ago as it does today.
-     */
     private static int movementKind(IMovement movement) {
-        return Math.abs(movement.getClass().getSimpleName().hashCode()) % 4096;
+        return MovementKinds.of(movement);
     }
 
     /**
