@@ -164,6 +164,11 @@ public class Baritone implements IBaritone {
      * The learning subsystem: recorded experience, trained models and the episodic memory. Inert unless
      * {@link Settings#mlEnabled} is on.
      */
+    @Override
+    public MlManager getLearningAPI() {
+        return this.mlManager;
+    }
+
     public MlManager getMlManager() {
         return this.mlManager;
     }

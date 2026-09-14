@@ -20,6 +20,7 @@ package baritone.ml;
 import baritone.Baritone;
 import baritone.api.event.events.TickEvent;
 import baritone.api.event.events.WorldEvent;
+import baritone.api.ml.ILearningAPI;
 import baritone.api.ml.Losses;
 import baritone.api.ml.Tensor;
 import baritone.api.ml.data.ReplayBuffer;
@@ -70,7 +71,7 @@ import java.util.zip.GZIPOutputStream;
  *
  * @author Barelentless
  */
-public final class MlManager extends Behavior implements Helper {
+public final class MlManager extends Behavior implements ILearningAPI, Helper {
 
     private static final String AIM_MODEL_FILE = "aim.brlm";
     private static final String MEMORY_FILE = "memory.brlm";
@@ -165,6 +166,7 @@ public final class MlManager extends Behavior implements Helper {
     /**
      * Builds the models and starts the trainer. Safe to call repeatedly; only the first call does anything.
      */
+    @Override
     public synchronized void start() {
         if (this.running.get()) {
             return;
@@ -193,6 +195,7 @@ public final class MlManager extends Behavior implements Helper {
     /**
      * Stops training and saves. The models stay loaded, so inference continues to work.
      */
+    @Override
     public synchronized void stop() {
         this.running.set(false);
         synchronized (this.trainerSignal) {
@@ -223,6 +226,7 @@ public final class MlManager extends Behavior implements Helper {
         this.aimSchedule = LearningRateSchedule.cosineWithWarmup(3e-4f, 3e-5f, 200, 20_000);
     }
 
+    @Override
     public boolean isRunning() {
         return this.running.get();
     }
@@ -231,6 +235,7 @@ public final class MlManager extends Behavior implements Helper {
         return this.liveAimModel;
     }
 
+    @Override
     public EpisodicMemory getMemory() {
         return this.memory;
     }
@@ -552,6 +557,7 @@ public final class MlManager extends Behavior implements Helper {
 
     // ------------------------------------------------------------------------------------------------ persistence
 
+    @Override
     public synchronized void save() {
         if (this.liveAimModel == null) {
             return;
@@ -653,6 +659,7 @@ public final class MlManager extends Behavior implements Helper {
     /**
      * A multi-line status report, for the {@code ml} command.
      */
+    @Override
     public List<String> status() {
         List<String> lines = new ArrayList<>();
         lines.add("enabled: " + Baritone.settings().mlEnabled.value + ", trainer " + (this.running.get() ? "running" : "stopped"));
@@ -682,6 +689,7 @@ public final class MlManager extends Behavior implements Helper {
         return lines;
     }
 
+    @Override
     public long getTrainingSteps() {
         return this.trainingSteps;
     }
@@ -701,6 +709,7 @@ public final class MlManager extends Behavior implements Helper {
     /**
      * Throws away everything learned and starts over. Files on disk are overwritten on the next save.
      */
+    @Override
     public synchronized void reset() {
         boolean wasRunning = this.running.get();
         stop();

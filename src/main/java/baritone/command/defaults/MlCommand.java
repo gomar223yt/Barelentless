@@ -128,7 +128,7 @@ public class MlCommand extends Command {
     }
 
     @Override
-    public Stream<String> tabComplete(String label, IArgConsumer args) {
+    public Stream<String> tabComplete(String label, IArgConsumer args) throws CommandException {
         if (args.hasExactlyOne()) {
             return new baritone.api.command.helpers.TabCompleteHelper()
                     .append("status", "start", "stop", "save", "reset", "selftest", "memory", "consolidate")

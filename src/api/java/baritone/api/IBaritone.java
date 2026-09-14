@@ -22,6 +22,7 @@ import baritone.api.behavior.IPathingBehavior;
 import baritone.api.cache.IWorldProvider;
 import baritone.api.command.manager.ICommandManager;
 import baritone.api.control.IControlAPI;
+import baritone.api.ml.ILearningAPI;
 import baritone.api.event.listener.IEventBus;
 import baritone.api.pathing.calc.IPathingControlManager;
 import baritone.api.process.*;
@@ -118,6 +119,15 @@ public interface IBaritone {
      * @see IControlAPI
      */
     IControlAPI getControlAPI();
+
+    /**
+     * Returns the {@link ILearningAPI} for this instance: what the bot has learned from what it has actually done,
+     * and the shared memory an addon can contribute its own experience to. Inert unless learning is enabled.
+     *
+     * @return The {@link ILearningAPI} instance
+     * @see ILearningAPI
+     */
+    ILearningAPI getLearningAPI();
 
     /**
      * @return The {@link IInputOverrideHandler} instance
